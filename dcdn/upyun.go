@@ -3,6 +3,8 @@ package dcdn
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"hash/crc32"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -107,12 +109,18 @@ func (upyun *Upyun) updateOrCreateSite() {
 	upyun.updateSources(bucketName)
 }
 
-// generateBucketName 生成又拍云服务名：优先使用配置的 Service，否则用 "dnet-" + 域名（点替换为横线）
+// generateBucketName 生成又拍云服务名：优先使用配置的 Name，
+// 否则取域名前 10 字符（点转横线）+ 4 位 CRC32，确保总长不超过 20 字符。
 func (upyun *Upyun) generateBucketName() string {
 	if upyun.CDN.Name != "" {
 		return upyun.CDN.Name
 	}
-	return "dnet-" + strings.ReplaceAll(upyun.CDN.Domain, ".", "-")
+	prefix := strings.ReplaceAll(upyun.CDN.Domain, ".", "-")
+	if len(prefix) > 10 {
+		prefix = strings.TrimRight(prefix[:10], "-")
+	}
+	suffix := fmt.Sprintf("%04x", crc32.ChecksumIEEE([]byte(upyun.CDN.Domain))&0xffff)
+	return "dnet-" + prefix + "-" + suffix
 }
 
 // createBucket 在又拍云创建 CDN 服务（bucket）
