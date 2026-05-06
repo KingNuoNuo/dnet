@@ -73,7 +73,7 @@ const CDN_PROVIDERS = {
         typeSelect: [
             "CDN",
         ],
-        idHelpHtml: "<a href='javascript:void(0)' onclick='openUpyunTokenDialog()'>点击自动获取 Token</a>",
+        idHelpHtml: "<a href='javascript:void(0)' onclick='openUpyunTokenDialog()'>点击获取 Token</a>",
         typeHelpHtml: "<a target='_blank' href='https://console.upyun.com/cdn/list/'>又拍云 CDN 控制台</a>",
         maxSources: [1],
         protocolTipHtml: [
@@ -83,32 +83,11 @@ const CDN_PROVIDERS = {
 }
 
 function openUpyunTokenDialog() {
-    var $ = layui.$;
     var layer = layui.layer;
-
-    var dialogHtml = '<div style="padding:20px 24px">' +
-        '<div class="layui-form-item">' +
-        '<label class="layui-form-label">用户名</label>' +
-        '<div class="layui-input-block">' +
-        '<input type="text" id="upyun-dlg-username" class="layui-input" placeholder="又拍云账号用户名">' +
-        '</div></div>' +
-        '<div class="layui-form-item">' +
-        '<label class="layui-form-label">密码</label>' +
-        '<div class="layui-input-block" style="display:flex;gap:6px">' +
-        '<input type="password" id="upyun-dlg-password" class="layui-input" placeholder="又拍云账号密码">' +
-        '<button type="button" id="upyun-dlg-fetch" class="layui-btn layui-btn-sm" style="white-space:nowrap">获取 Token</button>' +
-        '</div></div>' +
-        '<div class="layui-form-item">' +
-        '<label class="layui-form-label">Token</label>' +
-        '<div class="layui-input-block" style="display:flex;gap:6px">' +
-        '<input type="text" id="upyun-dlg-token" class="layui-input" placeholder="获取成功后显示" readonly>' +
-        '<button type="button" id="upyun-dlg-copy" class="layui-btn layui-btn-sm" style="white-space:nowrap">复制</button>' +
-        '</div></div></div>';
-
     layer.open({
-        type: 1,
+        type: 2,
         title: '获取又拍云 Token',
-        content: dialogHtml,
+        content: '/dcdn/upyun/token-dialog',
         area: function () {
             if (window.innerWidth <= 768) {
                 return ['95%', '85%'];
@@ -119,52 +98,5 @@ function openUpyunTokenDialog() {
             }
         }(),
         btn: ['关闭'],
-        success: function (layero) {
-            layero.find('#upyun-dlg-fetch').on('click', function () {
-                var username = layero.find('#upyun-dlg-username').val().trim();
-                var password = layero.find('#upyun-dlg-password').val().trim();
-                if (!username || !password) {
-                    layer.msg('请输入用户名和密码', {icon: 2, time: 2000});
-                    return;
-                }
-                var loadIdx = layer.load(2);
-                $.ajax({
-                    type: 'POST',
-                    url: '/api/dcdn/upyun/token',
-                    contentType: 'application/json',
-                    dataType: 'json',
-                    data: JSON.stringify({username: username, password: password}),
-                    success: function (res) {
-                        layer.close(loadIdx);
-                        if (res.status) {
-                            layero.find('#upyun-dlg-token').val(res.data);
-                            layer.msg('Token 获取成功', {icon: 1, time: 2000});
-                        } else {
-                            layer.msg(res.msg || '获取失败，请检查账号密码', {icon: 2, time: 3000});
-                        }
-                    },
-                    error: function () {
-                        layer.close(loadIdx);
-                        layer.msg('请求失败，请重试', {icon: 2, time: 2500});
-                    }
-                });
-            });
-            layero.find('#upyun-dlg-copy').on('click', function () {
-                var token = layero.find('#upyun-dlg-token').val();
-                if (!token) {
-                    layer.msg('暂无 Token 可复制', {icon: 2, time: 1500});
-                    return;
-                }
-                if (navigator.clipboard) {
-                    navigator.clipboard.writeText(token).then(function () {
-                        layer.msg('已复制到剪贴板', {icon: 1, time: 1500});
-                    });
-                } else {
-                    layero.find('#upyun-dlg-token')[0].select();
-                    document.execCommand('copy');
-                    layer.msg('已复制到剪贴板', {icon: 1, time: 1500});
-                }
-            });
-        }
     });
 }

@@ -14,7 +14,7 @@ import (
 	"github.com/cxbdasheng/dnet/helper"
 )
 
-//go:embed dcdn.html
+//go:embed dcdn.html upyun_token_dialog.html
 var DCDNEmbedFile embed.FS
 
 func (s *Server) DCDN(writer http.ResponseWriter, request *http.Request) {
@@ -178,6 +178,20 @@ func (s *Server) UpyunToken(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	helper.ReturnSuccess(writer, "Token 获取成功", result.AccessToken)
+}
+
+func (s *Server) UpyunTokenDialog(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		http.NotFound(writer, request)
+		return
+	}
+	content, err := DCDNEmbedFile.ReadFile("upyun_token_dialog.html")
+	if err != nil {
+		http.Error(writer, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writer.Write(content)
 }
 
 func generateUpyunCode(n int) string {
