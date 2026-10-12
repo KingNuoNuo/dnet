@@ -7,7 +7,6 @@
 [![Go Version](https://img.shields.io/badge/go-%3E%3D1.26.6-blue.svg)](https://go.dev/)
 [![Release](https://img.shields.io/github/v/release/cxbdasheng/dnet)](https://github.com/cxbdasheng/dnet/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/cxbdasheng/dnet)](https://goreportcard.com/report/github.com/cxbdasheng/dnet)
-[![Docker Pulls](https://img.shields.io/docker/pulls/cxbdasheng/dnet)](https://hub.docker.com/r/cxbdasheng/dnet)
 [![GitHub Downloads](https://img.shields.io/github/downloads/cxbdasheng/dnet/total)](https://github.com/cxbdasheng/dnet/releases)
 
 [主要功能](#主要功能) • [快速开始](#快速开始) • [最佳实践](https://github.com/cxbdasheng/dnet/wiki/%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5) • [Wiki 文档](https://github.com/cxbdasheng/dnet/wiki)
@@ -120,38 +119,7 @@ sudo ./dnet -s restart            # Mac/Linux
 # 重置密码
 ./dnet -resetPassword 123456
 ```
-### 方式二：使用 Docker
-
-**Linux（推荐 Host 模式）：**
-```bash
-docker run -d --name dnet --net=host -v /opt/dnet:/root --restart=always cxbdasheng/dnet:latest
-```
-
-**macOS / Windows（端口映射）：**
-```bash
-docker run -d --name dnet -p 9877:9877 -v /opt/dnet:/root --restart=always cxbdasheng/dnet:latest
-```
-
-> **说明：** Host 模式支持 IPv6 地址检测（仅 Linux）；**端口映射无法直接获取宿主机的网卡信息，可能无法检测 IPv6**。
-
-**常用命令：**
-```bash
-# 重置密码
-docker exec dnet ./dnet -resetPassword 123456 && docker restart dnet
-
-# 查看日志
-docker logs -f dnet
-```
-
-**本地构建镜像：**
-```bash
-make docker          # 使用容器内 Go 工具链构建 dnet:<version>，不会推送
-make docker-buildx   # 将四平台 OCI archive 输出到 dist/
-```
-
-`make docker-buildx` 会先检查当前 Buildx builder 是否支持全部目标平台；若缺少 `linux/arm/v7` 等平台，请启用 Docker Desktop 的 QEMU/binfmt 仿真，或切换到兼容的 builder。推送镜像必须显式指定目标，例如 `make docker-push PUSH_IMAGE=example.com/user/dnet`。
-
-### 方式三：从源码构建
+### 方式二：从源码构建
 ```bash
 make build                              # 构建当前平台
 goreleaser build --snapshot --clean     # 构建所有平台
