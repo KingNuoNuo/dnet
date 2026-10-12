@@ -138,9 +138,11 @@ func Issue(ctx context.Context, c Certificate) (Certificate, error) {
 }
 
 func issue(ctx context.Context, c Certificate, httpClient *http.Client) (Certificate, error) {
+	reportProgress(ctx, "校验配置")
 	if err := ValidateACME(c); err != nil {
 		return c, err
 	}
+	reportProgress(ctx, "准备 ACME 账户")
 	if err := EnsureAccount(&c); err != nil {
 		return c, err
 	}
@@ -164,6 +166,7 @@ func issue(ctx context.Context, c Certificate, httpClient *http.Client) (Certifi
 			return c, err
 		}
 	}
+	reportProgress(ctx, "注册 / 复用 CA 账户")
 	if c.CA == ZeroSSLCA && c.EABDisabled {
 		if _, err = client.GetReg(ctx, ""); err != nil {
 			return c, fmt.Errorf("无法复用 ZeroSSL 账户，请开启 EAB 认证完成账户绑定")
@@ -175,6 +178,7 @@ func issue(ctx context.Context, c Certificate, httpClient *http.Client) (Certifi
 	}
 	challenges := &challengeResponses{values: map[string]string{}}
 	if c.Challenge == "http" {
+		reportProgress(ctx, "启动 HTTP 验证监听")
 		listener, e := net.Listen("tcp", c.Listen)
 		if e != nil {
 			return c, fmt.Errorf("HTTP 验证端口监听失败: %w", e)
@@ -183,6 +187,7 @@ func issue(ctx context.Context, c Certificate, httpClient *http.Client) (Certifi
 		defer server.Close()
 		go server.Serve(listener)
 	}
+	reportProgress(ctx, "创建证书订单")
 	order, err := client.AuthorizeOrder(ctx, acme.DomainIDs(c.Domains...))
 	if err != nil {
 		return c, err
@@ -227,6 +232,7 @@ func issue(ctx context.Context, c Certificate, httpClient *http.Client) (Certifi
 				return c, e
 			}
 		} else {
+			reportProgress(ctx, "写入 DNS 验证记录")
 			value, e := client.DNS01ChallengeRecord(chosen.Token)
 			if e != nil {
 				return c, e
@@ -236,11 +242,13 @@ func issue(ctx context.Context, c Certificate, httpClient *http.Client) (Certifi
 			if e != nil {
 				return c, e
 			}
+			reportProgress(ctx, "等待 DNS 验证记录生效（"+name+"）")
 			if e = waitTXT(ctx, name, value); e != nil {
 				cleanup()
 				return c, e
 			}
 		}
+		reportProgress(ctx, "提交验证（"+auth.Identifier.Value+"）")
 		_, e = client.Accept(ctx, chosen)
 		if e == nil {
 			_, e = client.WaitAuthorization(ctx, authURL)
@@ -250,6 +258,7 @@ func issue(ctx context.Context, c Certificate, httpClient *http.Client) (Certifi
 			return c, e
 		}
 	}
+	reportProgress(ctx, "等待 CA 完成验证")
 	order, err = client.WaitOrder(ctx, order.URI)
 	if err != nil {
 		return c, err
@@ -258,10 +267,12 @@ func issue(ctx context.Context, c Certificate, httpClient *http.Client) (Certifi
 	if err != nil {
 		return c, err
 	}
+	reportProgress(ctx, "生成私钥并提交 CSR")
 	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{DNSNames: c.Domains}, certKey)
 	if err != nil {
 		return c, err
 	}
+	reportProgress(ctx, "下载证书")
 	chain, _, err := client.CreateOrderCert(ctx, order.FinalizeURL, csr, true)
 	if err != nil {
 		return c, err
