@@ -1,6 +1,6 @@
 module github.com/cxbdasheng/dnet
 
-go 1.26.6
+go 1.26.9
 
 require (
 	github.com/kardianos/service v1.3.0
