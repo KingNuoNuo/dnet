@@ -73,6 +73,9 @@ type Config struct {
 	// 端口通过 uci 自动加进 OpenWrt 防火墙放行（fw3/fw4 自适应），关闭/删规则时撤掉。
 	ForwardAutoFirewall bool           `json:"forward_auto_firewall" yaml:"forward_auto_firewall,omitempty"`
 	ForwardRules        []forward.Rule `json:"forward_rules" yaml:"forward_rules,omitempty"`
+	// WebAutoFirewall 与 ForwardAutoFirewall 同理：把 Web 服务里监听在通配
+	// 地址的规则端口加进防火墙放行，与端口转发共用同一套 dnet- 前缀规则。
+	WebAutoFirewall bool `json:"web_auto_firewall" yaml:"web_auto_firewall,omitempty"`
 	// 语言
 	Lang string
 }

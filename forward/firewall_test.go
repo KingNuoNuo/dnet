@@ -68,3 +68,70 @@ firewall.cfg0ghi56.name='user-rule-not-ours'
 		t.Fatalf("cfg0def34 parsed wrong: %+v", got["cfg0def34"])
 	}
 }
+
+func TestDetectBackendOrder(t *testing.T) {
+	orig := fwDetector
+	defer func() { fwDetector = orig }()
+	for _, c := range []struct {
+		in    []string
+		restore bool
+		want  string
+	}{
+		{in: []string{"fw4", "nft", "iptables"}, want: "fw4"},
+		{in: []string{"fw3", "nft", "iptables"}, want: "fw3"},
+		{in: []string{"nft", "iptables"}, want: "nft"},
+		{in: []string{"iptables"}, want: "iptables"},
+		{in: []string{}, want: "none"},
+	} {
+		fwDetector = func(bin string) bool {
+			for _, b := range c.in {
+				if b == bin {
+					return true
+				}
+			}
+			return false
+		}
+		fwBackend = ""
+		if got := detectBackend(); got != c.want {
+			t.Errorf("detectBackend(%v)=%q want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestParseNFTHas(t *testing.T) {
+	out := `
+	table ip filter { # handle 3
+	}
+	table inet dnet { # handle 11
+		chain input { # handle 1
+			tcp dport 18096 accept comment "dnet-a1" # handle 4
+			udp dport 5353 accept comment "dnet-a2" # handle 5
+			tcp dport 22 accept comment "user-rule" # handle 6
+		}
+	}
+`
+	got := parseNFTHas(out)
+	if len(got) != 2 {
+		t.Fatalf("want 2 dnet rules, got %v", got)
+	}
+	if got["dnet-a1"] != "18096/4" || got["dnet-a2"] != "5353/5" {
+		t.Fatalf("parsed wrong: %v", got)
+	}
+}
+
+func TestParseIPTHas(t *testing.T) {
+	out := `-A INPUT -i lo -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 18096 -m comment --comment dnet-a1 -j ACCEPT
+-A INPUT -p udp -m udp --dport 5353 -m comment --comment dnet-a2 -j ACCEPT
+`
+	got := parseIPTHas(out)
+	if len(got) != 2 {
+		t.Fatalf("want 2 dnet rules, got %v", got)
+	}
+	if iptPort(got["dnet-a1"]) != "18096" {
+		t.Fatalf("port parsed wrong: %q", got["dnet-a1"])
+	}
+	if got["dnet-a2"] != "-p udp -m udp --dport 5353 -m comment --comment dnet-a2 -j ACCEPT" {
+		t.Fatalf("spec parsed wrong: %q", got["dnet-a2"])
+	}
+}
