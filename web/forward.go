@@ -40,8 +40,9 @@ func (s *Server) ForwardAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodPost {
 		var payload struct {
-			Enabled bool           `json:"enabled"`
-			Rules   []forward.Rule `json:"rules"`
+			Enabled      bool           `json:"enabled"`
+			AutoFirewall bool           `json:"auto_firewall"`
+			Rules        []forward.Rule `json:"rules"`
 		}
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
 		decoder.DisallowUnknownFields()
@@ -59,16 +60,20 @@ func (s *Server) ForwardAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		conf.ForwardEnabled = payload.Enabled
+		conf.ForwardAutoFirewall = payload.AutoFirewall
 		conf.ForwardRules = payload.Rules
 		if err := s.Forwarder.Apply(conf.ActiveForwardRules(), func() error { return s.configRepo.Save(&conf) }); err != nil {
 			helper.ReturnError(w, err.Error())
 			return
 		}
+		// 套接字都起来了再对账防火墙：失败只记日志，不回滚保存
+		forward.SyncFirewall(payload.AutoFirewall, conf.ActiveForwardRules())
 		helper.Info(helper.LogTypeDPF, "配置保存并应用成功 [全局开启=%t, 规则数=%d]", payload.Enabled, len(payload.Rules))
 	}
 	helper.ReturnSuccess(w, "配置已生效", struct {
-		Enabled bool             `json:"enabled"`
-		Rules   []forward.Rule   `json:"rules"`
-		Status  []forward.Status `json:"status"`
-	}{conf.ForwardEnabled, conf.ForwardRules, s.Forwarder.Status()})
+		Enabled      bool             `json:"enabled"`
+		AutoFirewall bool             `json:"auto_firewall"`
+		Rules        []forward.Rule   `json:"rules"`
+		Status       []forward.Status `json:"status"`
+	}{conf.ForwardEnabled, conf.ForwardAutoFirewall, conf.ForwardRules, s.Forwarder.Status()})
 }

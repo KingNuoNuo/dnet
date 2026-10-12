@@ -85,6 +85,30 @@
               </div>
             </div>
 
+            <div class="layui-form-item">
+              <label class="layui-form-label" for="dpf_auto_fw"
+                >自动放行：</label
+              >
+              <div class="layui-input-inline">
+                <input
+                  type="checkbox"
+                  id="dpf_auto_fw"
+                  name="dpf_auto_fw"
+                  lay-filter="dpf-auto-fw"
+                  lay-skin="switch"
+                  lay-text="开启|关闭"
+                />
+              </div>
+              <div class="layui-form-mid layui-word-aux">
+                仅 OpenWrt 生效（fw3 / fw4
+                自适应检测）。开启后自动把「已启用且监听在
+                0.0.0.0/::」规则的端口加入 WAN
+                放行，停用或删除规则时自动撤掉；dnet 只动自己加的 dnet-
+                前缀规则。绑定具体内网 IP 的规则不放行。非 OpenWrt
+                系统开了也没作用。
+              </div>
+            </div>
+
             <div class="dnet-group">
               <span class="t">规则列表</span>
               <span class="act">
@@ -152,6 +176,7 @@
 
         let rules = [],
           enabled = false,
+          autoFw = false,
           selectedID = "",
           saved = null,
           live = null,
@@ -433,6 +458,7 @@
         }
         function renderAll() {
           document.querySelector("#dpf_enable").checked = enabled;
+          document.querySelector("#dpf_auto_fw").checked = autoFw;
           renderRows();
           renderStat();
           document.querySelector("#dirty").textContent = dirty
@@ -667,6 +693,7 @@
         }
         function restore(data) {
           enabled = data.enabled;
+          autoFw = !!data.auto_firewall;
           rules = clone(data.rules || []);
           // Preserve numbering independently of display names and internal IDs.
           const used = new Set(
@@ -722,6 +749,7 @@
           try {
             const data = await api({
               enabled,
+              auto_firewall: autoFw,
               rules: rules.map((rule) => ({ ...rule, enabled: true })),
             });
             // 保存接口万一只回一句 msg、不带 data，别拿 undefined 去覆盖本地状态
@@ -837,6 +865,10 @@
           enabled = data.elem.checked;
           markDirty();
           renderStat();
+        });
+        form.on("switch(dpf-auto-fw)", (data) => {
+          autoFw = data.elem.checked;
+          markDirty();
         });
         window.addEventListener("beforeunload", (e) => {
           if (dirty) {
