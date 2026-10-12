@@ -1,1583 +1,1171 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1"
+    />
     <title>DDNS 配置</title>
-    <link rel="stylesheet" href="/static/css/layui.css">
-    <link rel="stylesheet" href="/static/css/common.css">
-    <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="/static/css/layui.css" />
+    <link rel="stylesheet" href="/static/css/common.css" />
+    <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" />
     <script src="/static/layui.js"></script>
     <style>
-        body {
-            background-color: #f2f2f2;
-            margin: 0;
-            padding: 0 0 25px 0;
-            overflow-x: hidden;
-            min-height: 100vh;
-        }
-
-        html {
-            overflow-x: hidden;
-        }
+      body {
+        margin: 0;
+        padding: 0 0 25px;
+        overflow-x: hidden;
+        min-height: 100vh;
+      }
+      html {
+        overflow-x: hidden;
+      }
+      #dirty {
+        color: #c98b1d;
+      }
+      #dirty:empty {
+        display: none;
+      }
     </style>
-</head>
-<body>
-<div class="layui-container" style="padding: 15px;">
-    <form class="layui-form">
+  </head>
+  <body>
+    <div class="layui-container">
+      <p class="page-desc">
+        动态 DNS —— 监测本机公网 IP，变化时自动更新域名解析记录。一个域名一行，改完保存即生效。
+      </p>
+
+      <div class="dnet-stat" id="stat">
+        <span class="s-tag">运行指标</span>
+        <div class="s-kpi">
+          <div class="kpi">
+            <span class="k">域名配置</span>
+            <span class="v" id="kpi-groups">—</span>
+          </div>
+          <div class="kpi">
+            <span class="k">解析状态</span>
+            <span class="v" id="kpi-probe">—</span>
+          </div>
+          <div class="kpi">
+            <span class="k">解析记录</span>
+            <span class="v" id="kpi-records">—</span>
+          </div>
+          <div class="kpi">
+            <span class="k">动态取值</span>
+            <span class="v dim" id="kpi-dynamic">—</span>
+          </div>
+          <div class="kpi">
+            <span class="k">服务商</span>
+            <span class="v dim" id="kpi-vendor">—</span>
+          </div>
+        </div>
+        <div class="s-act">
+          <button type="button" class="layui-btn layui-btn-primary" id="reload">
+            重载配置
+          </button>
+        </div>
+      </div>
+
+      <form class="layui-form" lay-filter="ddns-form" onsubmit="return false">
         <div class="layui-card">
-            <div class="layui-card-header">DDNS 设置</div>
-            <div class="layui-card-body">
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="ddns_enable">是否开启：</label>
-                    <div class="layui-input-inline">
-                        <input type="checkbox" id="ddns_enable" name="ddns_enable" lay-skin="switch" lay-text="开启|关闭" checked>
-                    </div>
-                    <div class="layui-form-mid layui-word-aux">
-                        全局开关，关闭后 DDNS 将停用，所有配置失效。
-                    </div>
-                </div>
-                <hr/>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="config">配置：</label>
-                    <div class="layui-input-inline">
-                        <select id="config" lay-search="{fuzzy: false}" lay-creatable="" lay-verify="required" lay-filter="config-select-filter" name="config">
-                            <option value="1">1</option>
-                        </select>
-                    </div>
-                    <div class="layui-input-inline" style="width: 205px;">
-                        <button type="button" class="layui-btn" id="config-add">
-                            <i class="layui-icon layui-icon-add-1"></i>
-                        </button>
-                        <button type="button" class="layui-btn" id="config-rename">
-                            <i class="layui-icon layui-icon-edit"></i>
-                        </button>
-                        <button type="button" class="layui-btn" id="config-remove">
-                            <i class="layui-icon layui-icon-delete"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="domain">域名：</label>
-                    <div class="layui-input-block">
-                        <input type="text" id="domain" name="domain" lay-verify="domainAuth" autocomplete="off"
-                               placeholder="请输域名" class="layui-input">
-                        <tip>填写需要 DNS 解析的域名（如 ddns.example.com），第一次使用可参考 <a style="color: #1e9fff" href="https://github.com/cxbdasheng/dnet/wiki/DDNS-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97" target="_blank">DDNS 使用指南</a>。</tip>
-                    </div>
-                </div>
-                <div class="layui-row layui-form-item">
-                    <div class="layui-input-block">
-                        <button type="submit" class="layui-btn" lay-submit lay-filter="save">立即提交</button>
-                        <button type="reset" class="layui-btn layui-btn-primary">重置</button>
-                    </div>
-                </div>
+          <div class="layui-card-body">
+            <div class="dnet-group">
+              <span class="t">全局</span>
             </div>
-        </div>
-        <div class="layui-card">
-            <div class="layui-card-header">DNS 服务商</div>
-            <div class="layui-card-body">
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label"></label>
-                    <div class="layui-input-block" id="service-radio-container">
-                        <!-- CDN提供商单选按钮将通过JavaScript动态生成 -->
-                    </div>
-                    <tip class="tip" id="service-help-link"><a href="">创建 AccessKey</a></tip>
-                </div>
-
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="access_key" id="access-key-label">AccessKey
-                        ID：</label>
-                    <div class="layui-input-block">
-                        <input type="text" id="access_key" name="access_key" lay-verify="access_key" placeholder="请输入AccessKey ID" class="layui-input">
-                    </div>
-                </div>
-
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="access_secret" id="access-secret-label">AccessKey
-                        Secret：</label>
-                    <div class="layui-input-block">
-                        <input type="text" id="access_secret" name="access_secret" lay-verify="access_secret" placeholder="请输入AccessKey Secret" class="layui-input">
-                    </div>
-                </div>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="ttl" id="ttl-label">TTL ：</label>
-                    <div class="layui-input-block">
-                        <select name="ttl" lay-filter="ttl-filter" id="ttl">
-                            <option value="AUTO">自动</option>
-                            <option value="1s">1 秒</option>
-                            <option value="5s">5 秒</option>
-                            <option value="10s">10 秒</option>
-                            <option value="1m">1 分</option>
-                            <option value="2m">2 分</option>
-                            <option value="10m">10 分</option>
-                            <option value="30m">30 分</option>
-                            <option value="1h">1 小时</option>
-                        </select>
-                        <tip>如账号支持更小的 TTL 可修改, 但 IP 有变化时才会更新 TTL</tip>
-                    </div>
-                </div>
+            <div class="layui-form-item">
+              <label class="layui-form-label" for="ddns_enable"
+                >是否开启：</label
+              >
+              <div class="layui-input-inline">
+                <input
+                  type="checkbox"
+                  id="ddns_enable"
+                  name="ddns_enable"
+                  lay-skin="switch"
+                  lay-filter="global-enable"
+                  lay-text="开启|关闭"
+                />
+              </div>
+              <div class="layui-form-mid layui-word-aux">
+                全局开关。关闭后 DDNS
+                将停用，所有配置失效，配置内容保留。保存后生效。
+              </div>
             </div>
-        </div>
-        <div class="layui-card">
-            <div class="layui-card-header">DNS 记录设置</div>
-            <div class="layui-card-body">
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" id="type-label">记录类型 ：</label>
-                    <div class="layui-input-block">
-                        <input type="checkbox" name="type" value="A" title="IPv4（A）" lay-filter="type-checkbox">
-                        <input type="checkbox" name="type" value="AAAA" title="IPv6（AAAA）" lay-filter="type-checkbox">
-                        <input type="checkbox" name="type" value="CNAME" title="CNAME" lay-filter="type-checkbox">
-                        <input type="checkbox" name="type" value="TXT" title="TXT" lay-filter="type-checkbox">
-                        <div class="clear"></div>
-                        <tip>可同时选择 A 和 AAAA 记录，CNAME 不能与其他类型同时使用。</tip>
-                    </div>
-                </div>
-                <!--IPv4-->
-                <fieldset class="layui-elem-field layui-field-title" id="ipv4-fieldset">
-                    <legend>IPv4</legend>
-                </fieldset>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="ipv4_type">IPv4 类型 ：</label>
-                    <div class="layui-input-block">
-                        <select name="ipv4_type" lay-filter="ipv4-type-filter" id="ipv4_type">
-                            <option value="static_ipv4">静态 IPv4</option>
-                            <option value="dynamic_ipv4_url">动态 IPv4：接口获取</option>
-                            <option value="dynamic_ipv4_interface">动态 IPv4：网卡获取</option>
-                            <option value="dynamic_ipv4_command">动态 IPv4：命令获取</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="static_ipv4">静态 IPv4 地址：</label>
-                    <div class="layui-input-block">
-                        <input type="text" name="static_ipv4" id="static_ipv4" class="layui-input"
-                               placeholder="请输入静态 IPv4 地址" lay-verify="ipv4">
-                    </div>
-                </div>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="dynamic_ipv4_url">接口地址：</label>
-                    <div class="layui-input-block">
-                        <textarea name="dynamic_ipv4_url" placeholder="请输入 IPv4 获取地址" id="dynamic_ipv4_url" class="layui-textarea"></textarea>
-                    </div>
-                </div>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="dynamic_ipv4_interface">网卡：</label>
-                    <div class="layui-input-block">
-                        <select name="dynamic_ipv4_interface" id="dynamic_ipv4_interface">
-                            {{range .IPv4}}
-                            <option value="{{.Name}}">
-                                {{.Name}}{{.Address}}
-                            </option>
-                            {{end}}
-                        </select>
-                        {{if not .IPv4}}
-                        <tip style="color: red">当前系统未检测到 IPv4 网卡，请确保系统已启用 IPv4 支持</tip>
-                        {{end}}
-                    </div>
-                </div>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="dynamic_ipv4_command">命令：</label>
-                    <div class="layui-input-block">
-                        <textarea name="dynamic_ipv4_command" id="dynamic_ipv4_command" placeholder="请输入命令内容"
-                                  class="layui-textarea"></textarea>
-                        <tip>可参考 <a style="color: #1e9fff" href="https://github.com/cxbdasheng/dnet/wiki/%E9%80%9A%E8%BF%87%E5%91%BD%E4%BB%A4%E8%8E%B7%E5%8F%96-IP-%E5%8F%82%E8%80%83" target="_blank">命令获取 IP </a>，仅使用标准输出(stdout)的第一个匹配的 IPv4 地址</tip>
-                    </div>
-                </div>
-                <!--IPv6-->
-                <fieldset class="layui-elem-field layui-field-title" id="ipv6-fieldset">
-                    <legend>IPv6</legend>
-                </fieldset>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="ipv6_type">IPv6 类型 ：</label>
-                    <div class="layui-input-block">
-                        <select name="ipv6_type" lay-filter="ipv6-type-filter" id="ipv6_type">
-                            <option value="static_ipv6">静态 IPv6</option>
-                            <option value="dynamic_ipv6_url">动态 IPv6：接口获取</option>
-                            <option value="dynamic_ipv6_interface">动态 IPv6：网卡获取</option>
-                            <option value="dynamic_ipv6_command">动态 IPv6：命令获取</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="static_ipv6">静态 IPv6 地址：</label>
-                    <div class="layui-input-block">
-                        <input type="text" name="static_ipv6" id="static_ipv6" class="layui-input" placeholder="请输入静态 IPv6 地址" lay-verify="ipv6">
-                    </div>
-                </div>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="dynamic_ipv6_url">接口地址：</label>
-                    <div class="layui-input-block">
-                        <textarea name="dynamic_ipv6_url" placeholder="请输入 IPv6 获取地址" id="dynamic_ipv6_url" class="layui-textarea"></textarea>
-                    </div>
-                </div>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="dynamic_ipv6_interface">网卡：</label>
-                    <div class="layui-input-block">
-                        <select name="dynamic_ipv6_interface" id="dynamic_ipv6_interface">
-                            {{range .IPv6}}
-                            <option value="{{.Name}}">
-                                {{.Name}}{{.Address}}
-                            </option>
-                            {{end}}
-                        </select>
-                        {{if not .IPv6}}
-                        <tip style="color: red">当前系统未检测到 IPv6 网卡，请确保系统已启用 IPv6 支持</tip>
-                        {{end}}
-                    </div>
-                </div>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="dynamic_ipv6_regex">匹配正则表达式：</label>
-                    <div class="layui-input-block">
-                        <textarea name="dynamic_ipv6_regex" id="dynamic_ipv6_regex" placeholder="请输入正则表达式"
-                                  class="layui-textarea"></textarea>
-                        <tip>可使用 @1 指定第一个 IPv6 地址, @2 指定第二个IPv6地址... 也可使用正则表达式匹配指定的 IPv6 地址, 留空则不启用</tip>
-                    </div>
-                </div>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="dynamic_ipv6_command">命令：</label>
-                    <div class="layui-input-block">
-                        <textarea name="dynamic_ipv6_command" id="dynamic_ipv6_command" placeholder="请输入命令内容" class="layui-textarea"></textarea>
-                        <tip>可参考 <a style="color: #1e9fff" href="https://github.com/cxbdasheng/dnet/wiki/%E9%80%9A%E8%BF%87%E5%91%BD%E4%BB%A4%E8%8E%B7%E5%8F%96-IP-%E5%8F%82%E8%80%83" target="_blank">命令获取 IP </a>，仅使用标准输出(stdout)的第一个匹配的 IPv6 地址</tip>
-                    </div>
-                </div>
-                <!--CNAME-->
-                <fieldset class="layui-elem-field layui-field-title" id="cname-fieldset">
-                    <legend>CNAME</legend>
-                </fieldset>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="cname">CNAME 值：</label>
-                    <div class="layui-input-block">
-                        <textarea name="cname" id="cname" placeholder="请输入 CNAME 内容" lay-verify="cname" class="layui-textarea"></textarea>
-                    </div>
-                </div>
-                <!--TXT-->
-                <fieldset class="layui-elem-field layui-field-title" id="txt-fieldset">
-                    <legend>TXT</legend>
-                </fieldset>
-                <div class="layui-row layui-form-item">
-                    <label class="layui-form-label" for="txt">TXT 值：</label>
-                    <div class="layui-input-block">
-                        <textarea name="txt" id="txt" placeholder="请输入 TXT 内容" lay-verify="txt" class="layui-textarea"></textarea>
-                    </div>
-                </div>
+
+            <div class="dnet-group">
+              <span class="t">域名配置</span>
+              <span class="act">
+                <button
+                  type="button"
+                  class="layui-btn layui-btn-primary"
+                  id="probe-all"
+                >
+                  检测解析
+                </button>
+              </span>
             </div>
-        </div>
-        <div class="layui-row layui-form-item">
-            <div class="layui-input-block">
-                <button type="submit" class="layui-btn" lay-submit lay-filter="save">立即提交</button>
-                <button type="reset" class="layui-btn layui-btn-primary">重置</button>
+
+            <div class="dnet-rules-scroll">
+              <div class="dnet-rules rules-ddns">
+                <div class="dnet-rules-head">
+                  <span></span>
+                  <span>域名</span>
+                  <span>DNS 服务商</span>
+                  <span>解析记录</span>
+                  <span>TTL</span>
+                  <span>解析状态</span>
+                  <span>备注</span>
+                  <span></span>
+                </div>
+                <div class="dnet-rules-list" id="rows"></div>
+              </div>
             </div>
+
+            <button type="button" class="dnet-rule-add" id="add-row">
+              + 添加一行
+            </button>
+            <p class="dnet-rules-hint">
+              一个域名一行，解析记录（A / AAAA / CNAME / TXT）在行首的箭头里逐条配。
+              CNAME 不能与其他记录类型共存。TTL 只在 IP
+              真正变化时才会更新解析，不代表查询频率。
+            </p>
+          </div>
+
+          <div class="dnet-card-foot">
+            <span class="note">改动将在保存后立即生效<span id="dirty"></span></span>
+            <button type="button" class="layui-btn layui-btn-primary reset">
+              复位
+            </button>
+            <button
+              type="submit"
+              class="layui-btn save"
+              lay-submit
+              lay-filter="save"
+            >
+              保存并应用
+            </button>
+          </div>
         </div>
-    </form>
-</div>
-</body>
-<script src="/static/common.js"></script>
-<script src="/static/dns.js"></script>
-<script>
-    // 获取第一个 DNS 提供商作为默认值
-    const firstDNSProvider = Object.keys(DNS_PROVIDERS)[0] || "aliyun";
+      </form>
+    </div>
 
-    const defaultConfig = {
-        "domain": "",
-        "service": firstDNSProvider,
-        "name": "",
-        "access_key": "",
-        "access_secret": "",
-        "type": "AAAA",
-        "ipv6_type": "dynamic_ipv6_interface",
-        "dynamic_ipv6_url": "https://speed.neu6.edu.cn/getIP.php, https://v6.ident.me, https://6.ipw.cn, https://v6.yinghualuo.cn/bejson",
-        "ipv4_type": "dynamic_ipv4_interface",
-        "dynamic_ipv4_url": "https://myip.ipip.net, https://ddns.oray.com/checkip, https://ip.3322.net, https://4.ipw.cn, https://v4.yinghualuo.cn/bejson",
-    }
-    var configData = {{.DDNSConf}}
+    <!-- 网卡清单：由模板注入，JS 只从这里读选项。做成隐藏的 select 而不是
+         JS 字面量，是为了不改 .go 里的模板数据结构。lay-ignore 是必须的：
+         layui 会去渲染页面里每个没标记的 select，在这里插一堆没用的节点。 -->
+    <div hidden>
+      <!-- NetInterface.Address 是 []string，直接取整个字段会带上方括号
+           （形如 eth0[192.168.1.10 240e:...]），所以下面用 range 逐条拼接。
+           注意：这段注释里绝对不能写模板动作 —— Go 模板不会跳过 HTML 注释，
+           会把它当动作执行，整页渲染当场中断（ddns/dcdn 就踩过这个坑）。 -->
+      <select id="iface-ipv4" lay-ignore>
+        {{range .IPv4}}
+        <option value="{{.Name}}">{{.Name}} {{range .Address}}{{.}} {{end}}</option>
+        {{end}}
+      </select>
+      <select id="iface-ipv6" lay-ignore>
+        {{range .IPv6}}
+        <option value="{{.Name}}">{{.Name}} {{range .Address}}{{.}} {{end}}</option>
+        {{end}}
+      </select>
+    </div>
+  </body>
 
-    // 当前选中的配置 ID
-    var currentSelectedConfig = null;
+  <script src="/static/common.js"></script>
+  <script src="/static/dns.js"></script>
+  <script>
+    // 初始配置由模板注入：handleDDNSGet 把 GetDDNSConfigJSON 的结果塞进 DDNSConf
+    // （access_key / access_secret 已脱敏）。字段结构与后端 DNSGroup / DNSRecord
+    // 完全一致，所以这里不需要老页面那层 frontendToBackend 结构映射。
+    var configData = {{.DDNSConf}};
+  </script>
+  <script>
+    layui.use(["form", "layer"], function () {
+      const form = layui.form,
+        layer = layui.layer;
+      const root = document.querySelector("#rows"),
+        stat = document.querySelector("#stat");
 
-    // 后端数据结构转换为前端格式
-    // 后端：records 是数组 [{type, ip_type, value, regex}, ...]
-    // 前端：types 数组 + records 对象 {type: {ip_type, value, regex}, ...}
-    function backendToFrontend(backendData) {
-        if (!backendData || !backendData.ddns) {
-            return {ddns_enable: false, ddns: []};
+      let groups = [],
+        enabled = false,
+        saved = null,
+        dirty = false,
+        busy = false,
+        probing = false,
+        loaded = false;
+      const expanded = new Set();
+      // id -> { state, meta, tip, records }。探测结果只活在前端内存里：
+      // 它是「此刻的一次快照」，不参与保存，也不进配置。
+      const probes = new Map();
+      // 系统设置里已经配好凭据的服务商 id。凭据本身不会下发到本页，
+      // 这里只够回答「这个服务商能不能直接用」。
+      let configuredProviders = new Set();
+      const credentialConfigured = (service) =>
+        !!service && configuredProviders.has(service);
+
+      const TTL_OPTIONS = [
+        ["AUTO", "自动"],
+        ["1s", "1 秒"],
+        ["5s", "5 秒"],
+        ["10s", "10 秒"],
+        ["1m", "1 分"],
+        ["2m", "2 分"],
+        ["10m", "10 分"],
+        ["30m", "30 分"],
+        ["1h", "1 小时"],
+      ];
+      const ALL_TYPES = ["A", "AAAA", "CNAME", "TXT"];
+      // 取值方式的文案沿用原页面（全角冒号、不空格），只有「静态 IP」那一支不需要
+      // 说明来源，其余三种都在选项里点明从哪里取
+      const IP_TYPES = {
+        A: [
+          ["static_ipv4", "静态 IPv4"],
+          ["dynamic_ipv4_url", "动态 IPv4：接口获取"],
+          ["dynamic_ipv4_interface", "动态 IPv4：网卡获取"],
+          ["dynamic_ipv4_command", "动态 IPv4：命令获取"],
+        ],
+        AAAA: [
+          ["static_ipv6", "静态 IPv6"],
+          ["dynamic_ipv6_url", "动态 IPv6：接口获取"],
+          ["dynamic_ipv6_interface", "动态 IPv6：网卡获取"],
+          ["dynamic_ipv6_command", "动态 IPv6：命令获取"],
+        ],
+      };
+      const VALUE_HINT = {
+        static_ipv4: "192.168.1.10",
+        static_ipv6: "2001:db8::1",
+        dynamic_ipv4_url: "https://myip.ipip.net, https://4.ipw.cn",
+        dynamic_ipv6_url: "https://v6.ident.me, https://6.ipw.cn",
+        dynamic_ipv4_command: "执行后从 stdout 取第一个 IPv4",
+        dynamic_ipv6_command: "执行后从 stdout 取第一个 IPv6",
+        CNAME: "target.example.com",
+        TXT: "文本内容",
+      };
+      // 解析状态四种取值。外观沿用端口转发那套 .dnet-conn（同一个界面里
+      // 「状态」只该有一种长相），语义换成 DNS 解析。
+      const PROBE_VIEW = {
+        ok: { cls: "ok", label: "已解析", icon: "ok" },
+        stale: { cls: "warn", label: "待同步", icon: "dash" },
+        missing: { cls: "fail", label: "未解析", icon: "cross" },
+        unknown: { cls: "na", label: "仅查询", icon: "dash" },
+      };
+      // 一个域名可能配了多条记录，收敛成一个状态时取「最需要人管的」那个
+      const PROBE_RANK = { missing: 3, stale: 2, unknown: 1, ok: 0 };
+
+      const ICON_CHEV =
+        '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2.5L8 6l-3.5 3.5"/></svg>';
+      const ICON_CROSS =
+        '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg>';
+      const ICON_OK =
+        '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.2 6.4l2.5 2.5 5.1-5.6"/></svg>';
+      const ICON_DASH =
+        '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h6"/></svg>';
+
+      const clone = (value) => JSON.parse(JSON.stringify(value));
+      const esc = (value) =>
+        String(value ?? "").replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      const options = (list, current) =>
+        list
+          .map(
+            (item) =>
+              `<option value="${esc(item[0])}"${
+                String(item[0]) === String(current) ? " selected" : ""
+              }>${esc(item[1])}</option>`,
+          )
+          .join("");
+
+      function ifaceList(family) {
+        const tpl = document.getElementById("iface-" + family);
+        if (!tpl) return [];
+        return Array.from(tpl.options).map((o) => ({
+          value: o.value,
+          label: o.textContent.trim(),
+        }));
+      }
+      const IFACES = { ipv4: ifaceList("ipv4"), ipv6: ifaceList("ipv6") };
+
+      function provider(id) {
+        return (typeof DNS_PROVIDERS !== "undefined" && DNS_PROVIDERS[id]) || null;
+      }
+      function providerList() {
+        return Object.keys(
+          typeof DNS_PROVIDERS !== "undefined" ? DNS_PROVIDERS : {},
+        ).map((id) => [id, DNS_PROVIDERS[id].name || id]);
+      }
+      function recordTypesOf(id) {
+        const p = provider(id);
+        return (p && p.recordTypes) || ALL_TYPES;
+      }
+
+      function rowEl(id) {
+        return Array.from(root.children).find((el) => el.dataset.id === id);
+      }
+      function markDirty() {
+        dirty = true;
+        document.querySelector("#dirty").textContent = "（有未提交的更改）";
+      }
+      function error(e) {
+        const text = document.createElement("span");
+        text.textContent = e.message || String(e);
+        layer.msg(text.outerHTML, { icon: 2, time: 2500 });
+      }
+      function confirmBox(text, title) {
+        return new Promise((resolve) => {
+          layer.confirm(
+            text,
+            { title },
+            (index) => {
+              layer.close(index);
+              resolve(true);
+            },
+            () => resolve(false),
+          );
+        });
+      }
+      // 本页唯一会说话的 JSON 接口就是 POST /ddns（保存）。GET 返回的是页面本体，
+      // 所以没有「拉取」形态 —— 初始数据靠模板注入，重载靠 location.reload()。
+      async function saveConfig(body) {
+        const response = await fetch("/ddns", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) throw Error("请求失败：" + response.status);
+        let result;
+        try {
+          result = await response.json();
+        } catch {
+          throw Error("请检查登录状态并刷新页面");
         }
+        if (!result.status) throw Error(result.msg);
+        return result.data;
+      }
+      // 探测走的是「把这一行的原样数据发过去、别的地方不动」，所以没保存的
+      // 改动也能先查一眼。后端只拿 domain / records 去查 DNS，凭据用不上
+      // （脱敏值发过去也无所谓）。
+      async function probeAPI(group) {
+        const response = await fetch("/api/ddns/probe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(group),
+        });
+        if (!response.ok) throw Error("请求失败：" + response.status);
+        let result;
+        try {
+          result = await response.json();
+        } catch {
+          throw Error("请检查登录状态并刷新页面");
+        }
+        if (!result.status) throw Error(result.msg);
+        return result.data;
+      }
 
-        const frontendData = {
-            ddns_enable: backendData.ddns_enable,
-            ddns: []
+      /* ---------------- 校验 ---------------- */
+      function labelOf(id, field) {
+        const p = provider(id);
+        if (!p) return "AccessKey";
+        const raw = field === "id" ? p.idLabel : p.secretLabel;
+        return String(raw || "").replace(/[：:]\s*$/, "").trim();
+      }
+      function groupError(group) {
+        const p = provider(group.service);
+        if (!p) return ["service", "请选择 DNS 服务商"];
+        if (!isValidAuthDomain(group.domain))
+          return [
+            "domain",
+            "请填写正确域名，例如 example.com、*.example.com 或 _esaauth.example.com",
+          ];
+        // 凭据统一在「系统设置 → DNS 服务商」里按服务商维护，这里只确认配了没有 ——
+        // 密钥不在这一页，也就不该在这一页被判「太短」「不能为空」。
+        // callback 例外：它的凭据就是每个域名各自的回调地址，仍然填在行里。
+        if (group.service === "callback") {
+          if (!String(group.access_key || "").trim())
+            return ["access_key", "Callback URL 不能为空"];
+        } else if (!credentialConfigured(group.service)) {
+          return [
+            "service",
+            `「${p.name || group.service}」还没有凭据，请先到 系统设置 → DNS 服务商 添加`,
+          ];
+        }
+        if (!group.ttl) return ["ttl", "请选择 TTL"];
+        const records = group.records || [];
+        if (!records.length) return ["records", "至少要配一条解析记录"];
+        const types = records.map((r) => r.type);
+        if (types.includes("CNAME") && records.length > 1)
+          return ["records", "CNAME 不能与其他记录类型共存"];
+        if (new Set(types).size !== types.length)
+          return ["records", "同一种记录类型只能有一条"];
+        if (records.length > 20) return ["records", "一个域名最多 20 条记录"];
+        for (const record of records) {
+          if (!recordTypesOf(group.service).includes(record.type))
+            return ["records", `当前服务商不支持记录类型 ${record.type}`];
+          if (record.type === "A" || record.type === "AAAA") {
+            if (!IP_TYPES[record.type].some((t) => t[0] === record.ip_type))
+              return ["records", `${record.type} 记录请选择取值方式`];
+          }
+          if (!String(record.value || "").trim())
+            return ["records", `${record.type} 记录的值不能为空`];
+        }
+        return null;
+      }
+
+      // 「取值方式」里带 *_interface 的两个是唯一需要把「值」换成网卡下拉的，
+      // 单拎出来，渲染和禁用态走同一套判断
+      function ifaceFamily(ipType) {
+        const value = ipType || "";
+        if (value.startsWith("dynamic_ipv4_interface")) return "ipv4";
+        if (value.startsWith("dynamic_ipv6_interface")) return "ipv6";
+        return "";
+      }
+
+      /* ---------------- 渲染 ---------------- */
+      function recordValueCell(record) {
+        const family = ifaceFamily(record.ip_type);
+        if (family) {
+          const list = IFACES[family];
+          if (!list.length)
+            return `<div class="cell-value"><select data-rk="value" lay-ignore disabled aria-label="网卡"><option value="">未检测到 ${family.toUpperCase()} 网卡</option></select></div>`;
+          return `<div class="cell-value"><select data-rk="value" lay-ignore aria-label="网卡">${options(
+            list.map((i) => [i.value, i.label]),
+            record.value,
+          )}</select></div>`;
+        }
+        const hintKey =
+          record.type === "CNAME" || record.type === "TXT"
+            ? record.type
+            : record.ip_type;
+        return `<div class="cell-value"><input data-rk="value" aria-label="值" placeholder="${esc(
+          VALUE_HINT[hintKey] || "值",
+        )}" value="${esc(record.value)}"></div>`;
+      }
+      // 子表里的下拉一律带 lay-ignore：layui 会把没标记的 <select> 换成它自己的
+      // .layui-form-select（原 select 被 display:none），那个多出来的 div 同样是
+      // 子网格的网格项，会把「记录类型 / 取值方式 / 值 / 正则 / 删除」整排挤到
+      // 后面的列上去。主表的下拉（服务商 / TTL）出于同样的原因也带了这个属性。
+      function recordRow(record, index, group) {
+        const types = recordTypesOf(group.service);
+        const ipTypes = IP_TYPES[record.type] || [];
+        const needRegex = (record.ip_type || "") === "dynamic_ipv6_interface";
+        return `
+          <div class="dnet-sub-row" data-idx="${index}">
+            <select data-rk="type" lay-ignore aria-label="记录类型">${options(
+              types.map((t) => [t, t]),
+              record.type,
+            )}</select>
+            <select data-rk="ip_type" lay-ignore aria-label="取值方式"${
+              ipTypes.length ? "" : " disabled"
+            }>${ipTypes.length ? options(ipTypes, record.ip_type) : '<option value="">—</option>'}</select>
+            ${recordValueCell(record)}
+            <input data-rk="regex" aria-label="匹配正则" placeholder="请输入正则表达式" value="${esc(record.regex)}"${needRegex ? "" : " disabled"}>
+            <button type="button" class="dnet-sub-del" data-del-rec aria-label="删除该记录" title="删除该记录">${ICON_CROSS}</button>
+          </div>`;
+      }
+      function recordsBlock(group) {
+        const records = group.records || [];
+        const body = records.length
+          ? records.map((r, i) => recordRow(r, i, group)).join("")
+          : '<p class="note">还没有记录，点右上角「添加记录」。</p>';
+        return `
+            <div class="dnet-sub rec" data-rec-block>
+              <div class="dnet-sub-head">
+                <span class="t">DNS 记录</span>
+                <span class="act"><button type="button" class="dnet-sub-add" data-add-rec>+ 添加记录</button></span>
+              </div>
+              <div class="dnet-sub-scroll">
+                <div class="dnet-sub-grid">
+                  <div class="dnet-sub-head-row">
+                    <span>记录类型</span>
+                    <span>取值方式</span>
+                    <span>值</span>
+                    <span>匹配正则</span>
+                    <span></span>
+                  </div>
+                  <div class="dnet-sub-list" data-rec-list>${body}</div>
+                </div>
+              </div>
+            </div>`;
+      }
+      // 这个格子会随子表增删记录而变，靠 dnet-rec-tags 定位后整体替换。
+      // class 必须两种状态都带 —— 只给「有记录」那一支补的话，从空到有记录这
+      // 一步找不到节点，标签会一直停在「未配置」。
+      function recordTags(group) {
+        const types = (group.records || []).map((r) => r.type);
+        if (!types.length)
+          return '<span class="dnet-cell dnet-rec-tags is-dim">未配置</span>';
+        return `<span class="dnet-cell dnet-rec-tags">${types
+          .map((t) => `<span class="tag">${esc(t)}</span>`)
+          .join("")}</span>`;
+      }
+      function refreshRecordTags(id) {
+        const group = groups.find((g) => g.id === id);
+        const cell = rowEl(id)?.querySelector(".dnet-rec-tags");
+        if (group && cell) cell.outerHTML = recordTags(group);
+      }
+
+      /* ---------------- 解析状态 ---------------- */
+      function probeOf(id) {
+        return probes.get(id);
+      }
+      // 多条记录收敛成一个状态：只要有一条没对上就报出来，
+      // 优先级 未解析 > 待同步 > 仅查询 > 已解析
+      function rollupProbe(records) {
+        let worst = "ok";
+        for (const record of records) {
+          const rank = PROBE_RANK[record.status];
+          if (rank === undefined) continue;
+          if (rank > PROBE_RANK[worst]) worst = record.status;
+        }
+        return worst;
+      }
+      // meta 只放「一眼要看的」：单条记录直接给实际解析值，多条给条数。
+      // 完整明细（每条记录期望 vs 实际）放 tooltip。
+      function probeMeta(state, records, values) {
+        if (values.length === 1 && records.length === 1) return values[0];
+        if (records.length) return records.length + " 条记录";
+        return state === "missing" ? "无记录" : "";
+      }
+      function probeTip(records) {
+        return records
+          .map((record) => {
+            const actual = (record.actual || []).length
+              ? record.actual.join(", ")
+              : "（无解析结果）";
+            const expect = record.expect || "（未取到期望值）";
+            return `${record.type}：期望 ${expect}，实际 ${actual}`;
+          })
+          .join("\n");
+      }
+      function probeCell(id) {
+        const p = probeOf(id);
+        if (!p)
+          return '<span class="dnet-conn" title="尚未检测，点「检测解析」查看线上实际解析结果"><span class="meta">—</span></span>';
+        if (p.state === "pending")
+          return '<span class="dnet-conn"><span class="meta">检测中…</span></span>';
+        if (p.state === "na")
+          return `<span class="dnet-conn" title="${esc(p.tip)}">${ICON_DASH}<span class="meta">${esc(p.meta)}</span></span>`;
+        const view = PROBE_VIEW[p.state] || PROBE_VIEW.unknown;
+        const icon =
+          view.icon === "ok"
+            ? ICON_OK
+            : view.icon === "cross"
+              ? ICON_CROSS
+              : ICON_DASH;
+        return `<span class="dnet-conn ${view.cls}" title="${esc(p.tip)}">${icon}<span>${view.label}</span><span class="meta">${esc(p.meta)}</span></span>`;
+      }
+      function refreshProbe(id) {
+        const cell = rowEl(id)?.querySelector(".dnet-conn-cell");
+        if (cell) cell.innerHTML = probeCell(id);
+      }
+      function clearProbes() {
+        probes.clear();
+      }
+      // 影响解析结果的操作（增删行、换域名/服务商、改记录）之后，
+      // 旧结论一律作废 —— 留着比没有更误导。
+      function invalidateProbe(id) {
+        if (probes.delete(id)) refreshProbe(id);
+      }
+      // 探测单行。整行数据（含未保存的改动）发给后端，让它算期望值、查 DNS、
+      // 比对一次 —— 「填完先看一眼对不对」和「改完看有没有生效」是同一条路径。
+      async function probe(id) {
+        const group = groups.find((g) => g.id === id);
+        if (!group) return;
+        const issue = groupError(group);
+        if (issue) {
+          probes.set(id, {
+            state: "na",
+            meta: "待补全",
+            tip: `该行还有未填或无效的必填项（${issue[1]}），补全后即可检测。`,
+          });
+          refreshProbe(id);
+          return;
+        }
+        probes.set(id, { state: "pending", meta: "" });
+        refreshProbe(id);
+        try {
+          const data = await probeAPI(group);
+          const records = (data && data.records) || [];
+          const values = records.map((r) => (r.actual || [])[0]).filter(Boolean);
+          const state = rollupProbe(records);
+          probes.set(id, {
+            state,
+            meta: probeMeta(state, records, values),
+            tip: probeTip(records) || "线上没有解析到任何记录",
+            records,
+          });
+        } catch (e) {
+          probes.set(id, {
+            state: "na",
+            meta: "查询失败",
+            tip: e.message || String(e),
+          });
+        }
+        refreshProbe(id);
+        renderStat();
+      }
+      // 并发 3 而不是全开：动态取值要打外部接口，一次放太多容易一起超时。
+      async function probeAll(manual) {
+        if (probing || !loaded) return;
+        probing = true;
+        const button = document.querySelector("#probe-all");
+        button.disabled = true;
+        button.textContent = "检测中…";
+        const queue = groups.map((g) => g.id);
+        await Promise.all(
+          Array.from({ length: Math.min(3, queue.length) }, async () => {
+            while (queue.length) await probe(queue.shift());
+          }),
+        );
+        probing = false;
+        button.textContent = "检测解析";
+        button.disabled = busy || !loaded;
+        renderStat();
+        if (manual) layer.msg("解析状态检测完成", { icon: 1, time: 1200 });
+      }
+
+      // 凭据统一在「系统设置 → DNS 服务商」里按服务商配一次，域名行不再各填一份 ——
+      // 同一个账号配十个域名就填了十遍，换密钥还得逐个改。这里只报告状态。
+      // 唯一例外是 callback：它的「凭据」其实是每个域名各自的回调地址，没法共用。
+      function credentialBlock(group) {
+        if (group.service === "callback") {
+          return `<div data-cred-block>
+              <div class="f">
+                <label>${esc(labelOf("callback", "id") || "Callback URL")}</label>
+                <input data-key="access_key" aria-label="Callback URL" value="${esc(group.access_key)}">
+              </div>
+              <div class="f">
+                <label>${esc(labelOf("callback", "secret") || "请求内容")}</label>
+                <input data-key="access_secret" aria-label="请求内容" value="${esc(group.access_secret)}">
+              </div>
+            </div>`;
+        }
+        const p = provider(group.service);
+        const name = (p && p.name) || group.service || "该服务商";
+        const ready = credentialConfigured(group.service);
+        return `<div data-cred-block>
+              <div class="f wide">
+                <label>凭据</label>
+                <span class="tip-line">${
+                  ready
+                    ? `<span class="dnet-cred ok">已使用系统设置里 ${esc(name)} 的凭据</span>`
+                    : `<span class="dnet-cred warn">${esc(name)} 还没有配凭据</span>，请先到 <a href="/settings" target="_blank">系统设置 → DNS 服务商</a> 添加`
+                }</span>
+              </div>
+            </div>`;
+      }
+      // 换服务商时整块重画：该服务商的字段名、有没有凭据都不一样
+      function refreshCredentialBlock(outer, group) {
+        const block = outer.querySelector("[data-cred-block]");
+        if (block) block.outerHTML = credentialBlock(group);
+      }
+
+      function rowNode(group) {
+        const el = document.createElement("div");
+        el.className = "dnet-rule";
+        el.dataset.id = group.id;
+        const open = expanded.has(group.id);
+        el.innerHTML = `
+            <div class="dnet-rule-main">
+              <button type="button" class="dnet-rule-exp" aria-expanded="${open}" aria-label="展开高级设置" title="高级设置">${ICON_CHEV}</button>
+              <input data-key="domain" aria-label="域名" placeholder="ddns.example.com" value="${esc(group.domain)}">
+              <select data-key="service" aria-label="DNS 服务商" lay-ignore>${options(providerList(), group.service)}</select>
+              ${recordTags(group)}
+              <select data-key="ttl" aria-label="TTL" lay-ignore>${options(TTL_OPTIONS, group.ttl || "AUTO")}</select>
+              <span class="dnet-conn-cell">${probeCell(group.id)}</span>
+              <input data-key="name" aria-label="备注" placeholder="家里宽带" value="${esc(group.name)}">
+              <button type="button" class="dnet-rule-del" aria-label="删除该行" title="删除该行">${ICON_CROSS}</button>
+            </div>
+            <div class="dnet-rule-adv"${open ? "" : " hidden"}>
+              ${credentialBlock(group)}
+              ${recordsBlock(group)}
+              <p class="note">
+                取值方式为「网卡获取」时，只会读取所选网卡上的地址；IPv6
+                还可以再给一条匹配正则，用 @1 / @2 取第几个地址。静态地址不会被自动更新。
+              </p>
+            </div>`;
+        return el;
+      }
+
+      // 展开面板里的凭据块内容随服务商变（字段名、有没有配凭据），整体重画即可
+      function syncProviderFields(el, group) {
+        refreshCredentialBlock(el, group);
+      }
+      function renderRows() {
+        root.replaceChildren(...groups.map((g) => rowNode(g)));
+        form.render("checkbox");
+      }
+      function renderStat() {
+        const records = groups.reduce((n, g) => n + (g.records || []).length, 0);
+        const dynamic = groups.reduce(
+          (n, g) =>
+            n +
+            (g.records || []).filter((r) => (r.ip_type || "").startsWith("dynamic"))
+              .length,
+          0,
+        );
+        const vendors = new Set(groups.map((g) => g.service)).size;
+        // 解析状态的分子分母都用「总行数」：还没检测的行也计入分母，
+        // 这样「1 / 3 已解析」里的 3 和左边「域名配置 3 个」对得上，
+        // 想知道哪行没结论看行内那一格就行。
+        const checked = groups.map((g) => probeOf(g.id)).filter(Boolean);
+        const okProbe = checked.filter((p) => p.state === "ok").length;
+        const badProbe = checked.filter(
+          (p) => p.state === "stale" || p.state === "missing",
+        ).length;
+        const probeKpi = document.querySelector("#kpi-probe");
+        probeKpi.className = "v";
+        if (!groups.length) probeKpi.textContent = "—";
+        else {
+          probeKpi.textContent = `${okProbe} / ${groups.length} 已解析`;
+          if (badProbe) probeKpi.classList.add("warn");
+          else if (okProbe && okProbe === groups.length)
+            probeKpi.classList.add("ok");
+        }
+        document.querySelector("#kpi-groups").textContent = groups.length + " 个";
+        document.querySelector("#kpi-records").textContent = records + " 条";
+        document.querySelector("#kpi-dynamic").textContent = dynamic + " 条";
+        document.querySelector("#kpi-vendor").textContent = vendors + " 家";
+        stat.classList.toggle("is-off", !enabled);
+        stat.classList.toggle("is-warn", enabled && badProbe > 0);
+      }
+      function renderAll() {
+        document.querySelector("#ddns_enable").checked = enabled;
+        renderRows();
+        renderStat();
+        document.querySelector("#dirty").textContent = dirty
+          ? "（有未提交的更改）"
+          : "";
+        controls(busy || !loaded);
+      }
+      function controls(disabled) {
+        for (const node of document.querySelectorAll("button,input,select"))
+          if (node.id !== "probe-all") node.disabled = disabled;
+        // 「检测解析」归探测自己管：保存期间要禁，探测进行中也要禁
+        document.querySelector("#probe-all").disabled = disabled || probing;
+        if (!disabled)
+          for (const el of root.children) {
+            const group = groups.find((g) => g.id === el.dataset.id);
+            if (group) syncSubRows(el, group);
+          }
+        form.render("checkbox");
+      }
+      // 子行的状态收口：控件的可填写性 + 「值」与模型对齐。
+      // 后者是为了让「界面上看到的」和「提交出去的」一致 —— 网卡下拉在模型里的
+      // 值若不在选项里（新建行还是空串、或原来选的网卡已不存在），浏览器会自动
+      // 选中第一项，看着是填好的，一保存却报「值不能为空」。
+      function syncSubRows(el, group) {
+        const block = el.querySelector("[data-rec-block]");
+        if (!block) return;
+        (group.records || []).forEach((record, index) => {
+          const row = block.querySelector(`.dnet-sub-row[data-idx="${index}"]`);
+          if (!row) return;
+          const family = ifaceFamily(record.ip_type);
+          const value = row.querySelector('[data-rk="value"]');
+          if (family && value && value.tagName === "SELECT") {
+            if (value.options.length && value.value !== record.value)
+              record.value = value.value;
+            // 「网卡获取」但本机没有该族网卡时，值那一格是个只有一句提示的空下拉，
+            // controls(false) 会把它一起放开，这里要按状态收回去
+            if (!IFACES[family].length) value.disabled = true;
+          }
+          const regex = row.querySelector('[data-rk="regex"]');
+          if (regex) regex.disabled = family !== "ipv6";
+          const ipType = row.querySelector('[data-rk="ip_type"]');
+          if (ipType) ipType.disabled = !(IP_TYPES[record.type] || []).length;
+        });
+      }
+
+      // 网卡名要作为「值」存进配置 —— 新建记录 / 切到网卡获取时取第一块，
+      // 这样模型里的值从一开始就和下拉显示的一致
+      function firstIfaceValue(ipType) {
+        const family = ifaceFamily(ipType);
+        return family ? IFACES[family][0]?.value || "" : "";
+      }
+      // 记录类型或取值方式一变，「值」的语义基本就全变了（IP / URL / 命令 / 网卡名
+      // / 目标域名 / 文本）—— 网卡获取自动填第一块网卡，其余一律清空，交给占位
+      // 提示告诉用户这一格现在该填什么。把上一格的字符串顺手带过去提交，
+      // 比清空危险得多（比如把 IPv6 的接口地址当成 CNAME 的目标域名发出去）。
+      function resetValue(record) {
+        record.value = firstIfaceValue(record.ip_type);
+        record.regex = ifaceFamily(record.ip_type) === "ipv6" ? record.regex : "";
+      }
+
+      /* ---------------- 数据结构 ---------------- */
+      function newGroup() {
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        const first =
+          typeof DNS_PROVIDERS !== "undefined"
+            ? Object.keys(DNS_PROVIDERS)[0] || "alidns"
+            : "alidns";
+        const type = "AAAA";
+        const ipType = defaultIpType(first, type);
+        return {
+          id: Array.from(bytes, (x) => x.toString(16).padStart(2, "0")).join(""),
+          name: "配置 " + (groups.length + 1),
+          domain: "",
+          service: first,
+          access_key: "",
+          access_secret: "",
+          ttl: "AUTO",
+          records: [
+            { type, ip_type: ipType, value: firstIfaceValue(ipType), regex: "" },
+          ],
         };
+      }
+      function defaultIpType(service, type) {
+        if (type !== "A" && type !== "AAAA") return "";
+        const list = IP_TYPES[type];
+        const preferred = type === "A" ? "dynamic_ipv4_interface" : "dynamic_ipv6_interface";
+        return list.some((t) => t[0] === preferred) ? preferred : list[0][0];
+      }
+      // 换记录类型时，原来的取值方式还能不能留：同族（A 的四种 / AAAA 的四种）
+      // 里存在就沿用，跨族或换成 CNAME / TXT 就重挑一个默认的
+      function normalizeIpType(service, type, prevIpType) {
+        if ((IP_TYPES[type] || []).some((t) => t[0] === prevIpType)) return prevIpType;
+        return defaultIpType(service, type);
+      }
 
-        backendData.ddns.forEach(function(group) {
-            const frontendGroup = {
-                id: group.id,
-                name: group.name,
-                domain: group.domain,
-                service: group.service,
-                access_key: group.access_key,
-                access_secret: group.access_secret,
-                ttl: group.ttl,
-                types: [],
-                records: {}
-            };
-
-            if (group.records && Array.isArray(group.records)) {
-                group.records.forEach(function(record) {
-                    frontendGroup.types.push(record.type);
-                    frontendGroup.records[record.type] = {
-                        ip_type: record.ip_type,
-                        value: record.value,
-                        regex: record.regex
-                    };
-                });
-            }
-
-            frontendData.ddns.push(frontendGroup);
+      /* ---------------- 交互 ---------------- */
+      function readField(input) {
+        const row = input.closest(".dnet-rule");
+        const group = row && groups.find((g) => g.id === row.dataset.id);
+        if (!group) return null;
+        const key = input.dataset.key;
+        if (input.type === "checkbox") group[key] = input.checked;
+        else group[key] = input.value;
+        markDirty();
+        // 域名 / 服务商一改，之前那次探测的结论就不再对应这个配置了，
+        // 留着比没有更误导（比如把 A 域名查出来的结果挂在改过的域名上）
+        if (key === "domain" || key === "service") invalidateProbe(group.id);
+        return { group, key, row };
+      }
+      function readRecord(input) {
+        const row = input.closest(".dnet-sub-row");
+        const block = input.closest("[data-rec-block]");
+        const outer = input.closest(".dnet-rule");
+        const group = outer && groups.find((g) => g.id === outer.dataset.id);
+        if (!row || !block || !group) return null;
+        const index = Number(row.dataset.idx);
+        const record = (group.records || [])[index];
+        if (!record) return null;
+        record[input.dataset.rk] = input.value;
+        markDirty();
+        invalidateProbe(group.id);
+        return { group, record, index, outer, block };
+      }
+      function addRow() {
+        if (!loaded || busy) return;
+        if (groups.length >= 128) {
+          error(Error("最多支持 128 个域名配置"));
+          return;
+        }
+        const group = newGroup();
+        groups.push(group);
+        markDirty();
+        renderRows();
+        renderStat();
+        const el = rowEl(group.id);
+        if (el) {
+          el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          el.querySelector('[data-key="domain"]')?.focus({ preventScroll: true });
+        }
+      }
+      async function removeRow(group) {
+        if (!loaded || busy) return;
+        if (groups.length <= 1) {
+          layer.msg("至少保留一行，可关闭全局开关停用");
+          return;
+        }
+        const confirmed = await confirmBox(
+          `确定删除「${group.name || group.domain || "未命名"}」？保存后生效。`,
+          "删除配置",
+        );
+        if (!confirmed) return;
+        groups.splice(
+          groups.findIndex((g) => g.id === group.id),
+          1,
+        );
+        probes.delete(group.id);
+        markDirty();
+        renderRows();
+        renderStat();
+      }
+      function addRecord(outer, group) {
+        const records = group.records || (group.records = []);
+        if (records.some((r) => r.type === "CNAME")) {
+          layer.msg("已有 CNAME 记录，CNAME 不能与其他类型共存");
+          return;
+        }
+        if (records.length >= 20) {
+          layer.msg("一个域名最多 20 条记录");
+          return;
+        }
+        // 同一种类型只能有一条（后端按 type 唯一），只在「当前服务商支持且还没
+        // 用过」的类型里挑。CNAME 不能与其他记录共存，所以只有这一组还空着时
+        // 才让它进候选 —— 否则挑到它当场就把这一组弄成非法状态，要等保存才报错。
+        const used = records.map((r) => r.type);
+        const candidate = recordTypesOf(group.service).filter(
+          (t) => t !== "CNAME" || !records.length,
+        );
+        const type = candidate.find((t) => !used.includes(t));
+        if (!type) {
+          layer.msg("当前服务商支持的记录类型已经配满了");
+          return;
+        }
+        const ipType = defaultIpType(group.service, type);
+        records.push({
+          type,
+          ip_type: ipType,
+          value: firstIfaceValue(ipType),
+          regex: "",
         });
-
-        return frontendData;
-    }
-
-    // 前端数据结构转换为后端格式
-    function frontendToBackend(frontendData) {
-        if (!frontendData || !frontendData.ddns) {
-            return {ddns_enable: false, ddns: []};
+        markDirty();
+        rerenderRecords(outer, group);
+      }
+      function removeRecord(outer, group, index) {
+        (group.records || []).splice(index, 1);
+        markDirty();
+        rerenderRecords(outer, group);
+      }
+      // 记录子表随类型 / 取值方式变化时要整体重画（值那一格会换成网卡下拉），
+      // 子表很小，整块重画比逐个换节点省事也更不容易留下半吊子状态
+      function rerenderRecords(outer, group) {
+        const block = outer.querySelector("[data-rec-block]");
+        if (!block) return;
+        const scrollTop = block.querySelector(".dnet-sub-scroll")?.scrollLeft || 0;
+        block.outerHTML = recordsBlock(group);
+        const next = outer.querySelector("[data-rec-block]");
+        const scroller = next?.querySelector(".dnet-sub-scroll");
+        if (scroller) scroller.scrollLeft = scrollTop;
+        refreshRecordTags(group.id);
+        syncSubRows(outer, group);
+      }
+      async function reload() {
+        if (busy || !loaded) return;
+        if (dirty) {
+          const confirmed = await confirmBox(
+            "放弃所有未提交的更改，从服务端重新载入配置？",
+            "重载配置",
+          );
+          if (!confirmed) return;
         }
-
-        const backendData = {
-            ddns_enable: frontendData.ddns_enable,
-            ddns: []
-        };
-
-        frontendData.ddns.forEach(function(group) {
-            const backendGroup = {
-                id: group.id,
-                name: group.name,
-                domain: group.domain,
-                service: group.service,
-                access_key: group.access_key,
-                access_secret: group.access_secret,
-                ttl: group.ttl,
-                records: []
-            };
-
-            if (group.types && Array.isArray(group.types)) {
-                group.types.forEach(function(type) {
-                    const record = group.records[type];
-                    if (record) {
-                        backendGroup.records.push({
-                            type: type,
-                            ip_type: record.ip_type || '',
-                            value: record.value || '',
-                            regex: record.regex || ''
-                        });
-                    }
-                });
-            }
-
-            backendData.ddns.push(backendGroup);
-        });
-
-        return backendData;
-    }
-
-    // 转换后端数据为前端格式
-    configData = backendToFrontend(configData);
-
-
-    layui.use(['element', 'layer', 'util', 'form'], function () {
-        var element = layui.element;
-        var layer = layui.layer;
-        var util = layui.util;
-        var form = layui.form;
-        var $ = layui.$;
-        const unsavedChanges = createUnsavedChangesGuard($);
-
-        // 选择下拉框的第一个选项（如果当前值为空）
-        function selectFirstOption(selector) {
-            const $select = $(selector);
-            if (!$select.val()) {
-                const firstOption = $select.find('option:first').val();
-                if (firstOption) {
-                    $select.val(firstOption);
-                }
-            }
-            return $select.val();
+        // /ddns 只有「GET 返回页面本体 / POST 保存」两种形态，没有 JSON 接口，
+        // 配置是服务端渲染时注入的 —— 重新加载页面才是真正的「从服务端重载」。
+        location.reload();
+      }
+      function restore(data) {
+        enabled = !!data.ddns_enable;
+        // 只有服务端注入的那一份带这个字段；复位走的是本地快照，不带就沿用
+        // 现有的 —— 别把「哪些服务商已经配好凭据」这条信息抹掉
+        if (Array.isArray(data.configured_providers))
+          configuredProviders = new Set(data.configured_providers);
+        groups = clone(data.ddns || []);
+        for (const group of groups) {
+          if (!group.ttl) group.ttl = "AUTO";
+          if (!Array.isArray(group.records)) group.records = [];
         }
-
-        // 缓存常用的 DOM 选择器
-        const $cache = {
-            domainInput: $('input[name="domain"]'),
-            configSelect: $('select[name="config"]'),
-            ipv4Type: $('select[name="ipv4_type"]'),
-            ipv6Type: $('select[name="ipv6_type"]'),
-            staticIpv4: $('input[name="static_ipv4"]'),
-            dynamicIpv4Url: $('textarea[name="dynamic_ipv4_url"]'),
-            dynamicIpv4Interface: $('select[name="dynamic_ipv4_interface"]'),
-            dynamicIpv4Command: $('textarea[name="dynamic_ipv4_command"]'),
-            staticIpv6: $('input[name="static_ipv6"]'),
-            dynamicIpv6Url: $('textarea[name="dynamic_ipv6_url"]'),
-            dynamicIpv6Interface: $('select[name="dynamic_ipv6_interface"]'),
-            dynamicIpv6Regex: $('textarea[name="dynamic_ipv6_regex"]'),
-            dynamicIpv6Command: $('textarea[name="dynamic_ipv6_command"]'),
-            cname: $('textarea[name="cname"]'),
-            txt: $('textarea[name="txt"]')
-        };
-
-        // 自定义验证规则
-        form.verify({
-            // 域名验证
-            domain: function (value, elem) {
-                // 如果父容器被隐藏，跳过验证
-                var $parent = $(elem).closest('.layui-form-item');
-                if ($parent.length && $parent.is(':hidden')) {
-                    return; // 跳过验证
-                }
-
-                if (!value) {
-                    return '域名不能为空';
-                }
-
-                // 检查是否为泛解析（通配符域名）
-                var domainToCheck = value;
-                var isWildcard = false;
-                if (value.startsWith('*.')) {
-                    isWildcard = true;
-                    domainToCheck = value.substring(2); // 去掉 '*.' 前缀
-                    if (!domainToCheck) {
-                        return '泛解析域名格式错误，应为 *.example.com';
-                    }
-                }
-
-                // 域名长度检查
-                if (domainToCheck.length < 3 || value.length > 253) {
-                    return '域名长度必须在3-253个字符之间';
-                }
-                if (!DOMAIN_REGEX.test(domainToCheck)) {
-                    return '请输入正确的域名格式，例如：example.com 或 *.example.com';
-                }
-                // 检查是否包含至少一个点（顶级域名）
-                if (domainToCheck.indexOf('.') === -1) {
-                    return '域名必须包含顶级域名';
-                }
-                // 检查标签长度（每个部分不能超过63个字符）
-                const labels = domainToCheck.split('.');
-                for (var i = 0; i < labels.length; i++) {
-                    if (labels[i].length > 63) {
-                        return '域名的每个部分不能超过63个字符';
-                    }
-                }
-            },
-            // 域名验证（允许以 _ 开头的主机记录，如 _esaauth、_acme-challenge 等 TXT 归属验证记录）
-            domainAuth: function (value, elem) {
-                // 如果父容器被隐藏，跳过验证
-                var $parent = $(elem).closest('.layui-form-item');
-                if ($parent.length && $parent.is(':hidden')) {
-                    return; // 跳过验证
-                }
-
-                if (!value) {
-                    return '域名不能为空';
-                }
-
-                // 检查是否为泛解析（通配符域名）
-                var domainToCheck = value;
-                if (value.startsWith('*.')) {
-                    domainToCheck = value.substring(2); // 去掉 '*.' 前缀
-                    if (!domainToCheck) {
-                        return '泛解析域名格式错误，应为 *.example.com';
-                    }
-                }
-
-                // 域名长度检查
-                if (domainToCheck.length < 3 || value.length > 253) {
-                    return '域名长度必须在3-253个字符之间';
-                }
-                // 允许每个标签以字母、数字或下划线开头（下划线用于 _esaauth 等验证记录，DOMAIN_AUTH_REGEX 定义于 common.js）
-                if (!DOMAIN_AUTH_REGEX.test(domainToCheck)) {
-                    return '请输入正确的域名格式，例如：example.com、*.example.com 或 _esaauth.example.com';
-                }
-                // 检查是否包含至少一个点（顶级域名）
-                if (domainToCheck.indexOf('.') === -1) {
-                    return '域名必须包含顶级域名';
-                }
-                // 检查标签长度（每个部分不能超过63个字符）
-                const authLabels = domainToCheck.split('.');
-                for (var j = 0; j < authLabels.length; j++) {
-                    if (authLabels[j].length > 63) {
-                        return '域名的每个部分不能超过63个字符';
-                    }
-                }
-            },
-            // IPv4 验证
-            ipv4: function (value, elem) {
-                // 如果父容器被隐藏，跳过验证
-                var $parent = $(elem).closest('.layui-form-item');
-                if ($parent.length && $parent.is(':hidden')) {
-                    return; // 跳过验证
-                }
-
-                if (!value) {
-                    return 'IPv4 地址不能为空';
-                }
-                if (!ipv4Regex.test(value)) {
-                    return '请输入正确的 IPv4 地址格式，例如：192.168.1.1';
-                }
-            },
-            // AccessKey验证
-            access_key: function (value, elem) {
-                // 如果父容器被隐藏，跳过验证
-                var $parent = $(elem).closest('.layui-form-item');
-                if ($parent.length && $parent.is(':hidden')) {
-                    return; // 跳过验证
-                }
-
-                var labelText = $('#access-key-label').text().replace('：', '').trim();
-                if (!value) {
-                    return labelText + ' 不能为空';
-                }
-                if (value.length < 6) {
-                    return labelText + ' 长度不能少于6位';
-                }
-            },
-            // AccessSecret验证
-            access_secret: function (value, elem) {
-                // 如果父容器被隐藏，跳过验证
-                var $parent = $(elem).closest('.layui-form-item');
-                if ($parent.length && $parent.is(':hidden')) {
-                    return; // 跳过验证
-                }
-
-                // 自定义回调的 RequestBody 为可选项，允许为空
-                if ($('input[name="service"]:checked').val() === 'callback') {
-                    return;
-                }
-
-                var labelText = $('#access-secret-label').text().replace('：', '').trim();
-                if (!value) {
-                    return labelText + ' 不能为空';
-                }
-                if (value.length < 10) {
-                    return labelText + ' 长度不能少于10位';
-                }
-            },
-            // IPv6 验证
-            ipv6: function (value, elem) {
-                // 如果父容器被隐藏，跳过验证
-                var $parent = $(elem).closest('.layui-form-item');
-                if ($parent.length && $parent.is(':hidden')) {
-                    return; // 跳过验证
-                }
-
-                if (!value) {
-                    return 'IPv6 地址不能为空';
-                }
-                if (!ipv6FullRegex.test(value) && !ipv6CompressedRegex.test(value) && !ipv6MixedRegex.test(value)) {
-                    // 简化的 IPv6 验证
-                    var simpleIpv6Regex = /^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$|^::$/;
-                    if (!simpleIpv6Regex.test(value)) {
-                        return '请输入正确的 IPv6 地址格式，例如：2001:db8::1 或 ::1';
-                    }
-                }
-            },
-            // CNAME 验证
-            cname: function (value, elem) {
-                // 如果父容器被隐藏，跳过验证
-                var $parent = $(elem).closest('.layui-form-item');
-                if ($parent.length && $parent.is(':hidden')) {
-                    return; // 跳过验证
-                }
-                if (!value) {
-                    return 'CNAME 值不能为空';
-                }
-            },
-            // TXT 验证
-            txt: function (value, elem) {
-                // 如果父容器被隐藏，跳过验证
-                var $parent = $(elem).closest('.layui-form-item');
-                if ($parent.length && $parent.is(':hidden')) {
-                    return; // 跳过验证
-                }
-                if (!value) {
-                    return 'TXT 值不能为空';
-                }
+        if (!groups.length) groups.push(newGroup());
+        clearProbes();
+        dirty = false;
+        renderAll();
+      }
+      async function submit() {
+        if (busy || !loaded) return;
+        for (const group of groups) {
+          const issue = groupError(group);
+          if (!issue) continue;
+          const el = rowEl(group.id);
+          if (el) {
+            el.scrollIntoView({ block: "center", behavior: "smooth" });
+            const adv = el.querySelector(".dnet-rule-adv");
+            if (adv && adv.hidden) {
+              adv.hidden = false;
+              el.querySelector(".dnet-rule-exp")?.setAttribute(
+                "aria-expanded",
+                "true",
+              );
+              expanded.add(group.id);
             }
-        });
-
-        // 辅助函数：根据配置ID查找配置索引
-        function findConfigIndex(configId) {
-            for (let i = 0; i < configData.ddns.length; i++) {
-                if (configData.ddns[i].id === configId) {
-                    return i;
-                }
-            }
-            return -1;
+            const field = el.querySelector(`[data-key="${issue[0]}"]`);
+            if (field) field.focus({ preventScroll: true });
+          }
+          layer.msg(`${group.name || group.domain || "未命名"}：${issue[1]}`, {
+            icon: 2,
+            time: 3000,
+          });
+          return;
         }
-
-        // 辅助函数：根据配置ID获取配置对象
-        function getConfigById(configId) {
-            const index = findConfigIndex(configId);
-            return index !== -1 ? configData.ddns[index] : null;
+        busy = true;
+        controls(true);
+        try {
+          const data = await saveConfig({
+            ddns_enable: enabled,
+            ddns: groups,
+          });
+          // 保存后调度器是异步同步的，DNS 本身还有 TTL 缓存 —— 此刻立刻探测
+          // 多半还是旧值，显示出来就是一个必然的「待同步」假警报。宁可清空
+          // 结论，让用户过一会儿自己点「检测解析」。
+          clearProbes();
+          // POST /ddns 只回一句 msg，data 是 null —— 别拿它去覆盖本地状态
+          if (!data) {
+            saved = clone({ ddns_enable: enabled, ddns: groups });
+            dirty = false;
+            renderAll();
+            layer.msg("配置保存并应用成功", { icon: 1, time: 1200 });
+            return;
+          }
+          saved = clone(data);
+          restore(data);
+          layer.msg("配置保存并应用成功", { icon: 1, time: 1200 });
+        } catch (e) {
+          error(e);
+        } finally {
+          busy = false;
+          controls(false);
         }
-
-        function initDNSProviders() {
-            const container = $('#service-radio-container');
-            let radioHtml = '';
-            let isFirst = true;
-            // 生成单选按钮HTML
-            for (const providerId in DNS_PROVIDERS) {
-                if (DNS_PROVIDERS.hasOwnProperty(providerId)) {
-                    const provider = DNS_PROVIDERS[providerId];
-                    radioHtml += '<input type="radio" name="service" lay-filter="service" value="' + providerId + '" title="' + provider.name + '"';
-                    if (isFirst) {
-                        radioHtml += ' checked';
-                        isFirst = false;
-                    }
-                    radioHtml += '>';
-                }
-                // 插入HTML
-                container.html(radioHtml);
-                // 重新渲染表单
-                form.render('radio');
-                // 初始化表单标签和选项
-                updateFormBasedOnProvider($('input[name="service"]:checked').val());
-            }
+      }
+      async function reset() {
+        if (!saved || busy) return;
+        if (!dirty) {
+          restore(saved);
+          return;
         }
+        const confirmed = await confirmBox(
+          "放弃所有未提交的更改，恢复到上次提交状态？",
+          "复位配置",
+        );
+        if (confirmed) restore(saved);
+      }
 
-        // 根据选择的 DNS 提供商更新表单
-        function updateFormBasedOnProvider(providerId) {
-            if (!DNS_PROVIDERS[providerId]) return;
-            const provider = DNS_PROVIDERS[providerId];
-            updateProviderRecordTypes(providerId);
-            // 更新 AccessKey 字段
-            updateFormField('access-key-label', 'access_key', provider.idLabel, 'access_key');
-            updateFormField('access-secret-label', 'access_secret', provider.secretLabel, 'access_secret');
-            // 更新创建 AccessKey 链接
-            const $serviceHelpContainer = $('#service-help-link');
-            if (provider.idHelpHtml) {
-                $serviceHelpContainer.html(provider.idHelpHtml);
-            } else {
-                $serviceHelpContainer.html('<a href="">创建 AccessKey</a>');
+      root.addEventListener("input", (e) => {
+        if (e.target.dataset.key) readField(e.target);
+        else if (e.target.dataset.rk === "value" || e.target.dataset.rk === "regex")
+          readRecord(e.target);
+      });
+      root.addEventListener("change", (e) => {
+        const target = e.target;
+        if (target.dataset.rk) {
+          const hit = readRecord(target);
+          if (!hit) return;
+          const { group, record, outer } = hit;
+          if (target.dataset.rk === "type") {
+            // 类型一变，取值方式、值、正则都可能不再适用
+            record.ip_type = normalizeIpType(
+              group.service,
+              record.type,
+              record.ip_type,
+            );
+            resetValue(record);
+            const others = (group.records || []).filter((r) => r !== record);
+            if (record.type === "CNAME" && others.length) {
+              layer.msg("CNAME 不能与其他记录类型共存，已删除其他记录");
+              group.records = [record];
+            } else if (others.some((r) => r.type === "CNAME")) {
+              layer.msg("已有 CNAME 记录，不能添加其他类型");
+              record.type = "CNAME";
+              record.ip_type = "";
             }
-            form.render('select');
+            rerenderRecords(outer, group);
+            return;
+          }
+          if (target.dataset.rk === "ip_type") {
+            resetValue(record);
+            rerenderRecords(outer, group);
+            return;
+          }
+          return;
         }
-
-        function updateProviderRecordTypes(providerId) {
-            const supported = DNS_PROVIDERS[providerId]?.recordTypes || ['A', 'AAAA', 'CNAME', 'TXT'];
-            $('input[name="type"]').each(function() {
-                const disabled = !supported.includes(this.value);
-                $(this).prop('disabled', disabled);
-                if (disabled) $(this).prop('checked', false);
-            });
-            form.render('checkbox');
-            updateRecordTypeFields(getSelectedRecordTypes());
+        if (!target.dataset.key) return;
+        const hit = readField(target);
+        if (!hit) return;
+        const { group, key, row } = hit;
+        if (key === "service") {
+          syncProviderFields(row, group);
+          // 换了服务商，原来支持的类型可能不认了 —— 只保留合法的记录
+          const allowed = recordTypesOf(group.service);
+          const before = (group.records || []).length;
+          group.records = (group.records || []).filter((r) =>
+            allowed.includes(r.type),
+          );
+          if (group.records.length !== before)
+            layer.msg("新服务商不支持部分记录类型，已移除");
+          rerenderRecords(row, group);
+          return;
         }
-
-        // 表单字段显示/隐藏辅助函数
-        function updateFormField(labelId, fieldName, labelText, fieldId) {
-            const $row = $('#' + labelId).parent();
-            if (labelText && labelText.trim()) {
-                $('#' + labelId).text(labelText);
-                const placeholder = '请输入 ' + labelText.replace('：', '');
-
-                if ($row.is(':hidden') || $row.find('input[name="' + fieldName + '"]').length === 0) {
-                    // 保存当前字段的值（如果存在）
-                    const currentValue = $row.find('input[name="' + fieldName + '"]').val() || '';
-
-                    $row.find('.layui-input-block').html(
-                        '<input type="text" id="' + fieldId + '" name="' + fieldName + '"  lay-verify="' + fieldName + '" placeholder="' + placeholder + '" class="layui-input">'
-                    );
-
-                    // 恢复之前的值
-                    if (currentValue) {
-                        $row.find('input[name="' + fieldName + '"]').val(currentValue);
-                    }
-                } else {
-                    $row.find('input[name="' + fieldName + '"]').attr('placeholder', placeholder);
-                }
-                $row.show();
-            } else {
-                $row.hide();
-            }
+        if (key === "name" || key === "domain") refreshRecordTags(group.id);
+      });
+      root.addEventListener("click", (e) => {
+        const outer = e.target.closest(".dnet-rule");
+        if (!outer) return;
+        const group = groups.find((g) => g.id === outer.dataset.id);
+        if (!group) return;
+        if (e.target.closest(".dnet-rule-exp")) {
+          const adv = outer.querySelector(".dnet-rule-adv");
+          adv.hidden = !adv.hidden;
+          outer
+            .querySelector(".dnet-rule-exp")
+            .setAttribute("aria-expanded", String(!adv.hidden));
+          if (adv.hidden) expanded.delete(group.id);
+          else expanded.add(group.id);
+          return;
         }
-
-        // 监听 DNS 提供商选择变化
-        form.on('radio(service)', function (data) {
-            updateFormBasedOnProvider(data.value);
-        })
-        // 提交事件
-        form.on('submit(save)', function (data) {
-            // 检查当前是否已输入域名
-            const domainValue = $('input[name="domain"]').val().trim();
-            if (!domainValue) {
-                layer.msg('请先输入域名后再提交', {
-                    icon: 0,
-                    time: 2000,
-                    shade: 0.1
-                });
-                $('input[name="domain"]').focus();
-                return false;
-            }
-            // 验证域名格式
-            if (!isValidAuthDomain(domainValue)) {
-                layer.msg('请输入正确的域名格式，例如：www.example.com', {
-                    icon: 2,
-                    time: 3000,
-                    shade: 0.1
-                });
-                $('input[name="domain"]').focus();
-                return false;
-            }
-
-            // 验证是否至少选择了一种记录类型
-            const selectedTypes = getSelectedRecordTypes();
-            if (selectedTypes.length === 0) {
-                layer.msg('请至少选择一种记录类型', {
-                    icon: 0,
-                    time: 2000,
-                    shade: 0.1
-                });
-                return false;
-            }
-
-            // 验证每个选中记录类型的值是否已填写
-            for (let i = 0; i < selectedTypes.length; i++) {
-                const recordType = selectedTypes[i];
-                if (recordType === 'A') {
-                    const ipv4Type = $cache.ipv4Type.val();
-                    let ipv4Value = '';
-                    switch(ipv4Type) {
-                        case 'static_ipv4':
-                            ipv4Value = $cache.staticIpv4.val().trim();
-                            if (!ipv4Value) {
-                                layer.msg('请填写 IPv4 静态地址', {icon: 0, time: 2000, shade: 0.1});
-                                $cache.staticIpv4.focus();
-                                return false;
-                            }
-                            break;
-                        case 'dynamic_ipv4_url':
-                            ipv4Value = $cache.dynamicIpv4Url.val().trim();
-                            if (!ipv4Value) {
-                                layer.msg('请填写 IPv4 接口地址', {icon: 0, time: 2000, shade: 0.1});
-                                $cache.dynamicIpv4Url.focus();
-                                return false;
-                            }
-                            break;
-                        case 'dynamic_ipv4_interface':
-                            ipv4Value = $cache.dynamicIpv4Interface.val();
-                            if (!ipv4Value) {
-                                layer.msg('请选择 IPv4 网卡', {icon: 0, time: 2000, shade: 0.1});
-                                return false;
-                            }
-                            break;
-                        case 'dynamic_ipv4_command':
-                            ipv4Value = $cache.dynamicIpv4Command.val().trim();
-                            if (!ipv4Value) {
-                                layer.msg('请填写 IPv4 获取命令', {icon: 0, time: 2000, shade: 0.1});
-                                $cache.dynamicIpv4Command.focus();
-                                return false;
-                            }
-                            break;
-                    }
-                } else if (recordType === 'AAAA') {
-                    const ipv6Type = $cache.ipv6Type.val();
-                    let ipv6Value = '';
-                    switch(ipv6Type) {
-                        case 'static_ipv6':
-                            ipv6Value = $cache.staticIpv6.val().trim();
-                            if (!ipv6Value) {
-                                layer.msg('请填写 IPv6 静态地址', {icon: 0, time: 2000, shade: 0.1});
-                                $cache.staticIpv6.focus();
-                                return false;
-                            }
-                            break;
-                        case 'dynamic_ipv6_url':
-                            ipv6Value = $cache.dynamicIpv6Url.val().trim();
-                            if (!ipv6Value) {
-                                layer.msg('请填写 IPv6 接口地址', {icon: 0, time: 2000, shade: 0.1});
-                                $cache.dynamicIpv6Url.focus();
-                                return false;
-                            }
-                            break;
-                        case 'dynamic_ipv6_interface':
-                            ipv6Value = $cache.dynamicIpv6Interface.val();
-                            if (!ipv6Value) {
-                                layer.msg('请选择 IPv6 网卡', {icon: 0, time: 2000, shade: 0.1});
-                                return false;
-                            }
-                            break;
-                        case 'dynamic_ipv6_command':
-                            ipv6Value = $cache.dynamicIpv6Command.val().trim();
-                            if (!ipv6Value) {
-                                layer.msg('请填写 IPv6 获取命令', {icon: 0, time: 2000, shade: 0.1});
-                                $cache.dynamicIpv6Command.focus();
-                                return false;
-                            }
-                            break;
-                    }
-                } else if (recordType === 'CNAME') {
-                    const cnameValue = $cache.cname.val().trim();
-                    if (!cnameValue) {
-                        layer.msg('请填写 CNAME 值', {icon: 0, time: 2000, shade: 0.1});
-                        $cache.cname.focus();
-                        return false;
-                    }
-                } else if (recordType === 'TXT') {
-                    const txtValue = $cache.txt.val().trim();
-                    if (!txtValue) {
-                        layer.msg('请填写 TXT 值', {icon: 0, time: 2000, shade: 0.1});
-                        $cache.txt.focus();
-                        return false;
-                    }
-                }
-            }
-
-            // 保存当前配置数据
-            saveCurrentConfig();
-            // 保存 ddns_enable 到 configData 中
-            configData.ddns_enable = $('input[name="ddns_enable"]').is(':checked');
-
-            // 转换为后端格式并提交
-            var submitData = frontendToBackend(configData);
-
-            const submittedVersion = unsavedChanges.version();
-            $.ajax({
-                type: 'POST',
-                url: '/ddns',
-                contentType: 'application/json',
-                data: JSON.stringify(submitData),
-                success: function (response) {
-                    var res = response
-                    if (res.status) {
-                        unsavedChanges.markSaved(submittedVersion);
-                        layer.msg('配置保存成功', {
-                            icon: 1,
-                            time: 1000
-                        });
-                    } else {
-                        layer.msg(res.msg, {
-                            icon: 2,
-                            time: 1000
-                        });
-                    }
-                },
-                error: function (xhr, status, error) {
-                    layer.msg(error, {
-                        icon: 2,
-                        time: 2000
-                    });
-                }
-            });
-            return false; // 阻止默认 form 跳转
-        })
-
-        // 初始化配置下拉选项和数据
-        function initConfigData() {
-            const $select = $('select[name="config"]');
-            // 如果 configData.ddns 中有数据，初始化下拉选项
-            if (configData.ddns && configData.ddns.length > 0) {
-                // 清空现有选项
-                $select.empty();
-
-                // 根据 configData.ddns 创建选项
-                for (let i = 0; i < configData.ddns.length; i++) {
-                    const config = configData.ddns[i];
-                    const optionText = getConfigDisplayText(config);
-                    const isSelected = i === 0 ? ' selected' : '';
-                    $select.append('<option value="' + config.id + '"' + isSelected + '>' + optionText + '</option>');
-                }
-
-                // 重新渲染下拉框
-                form.render('select');
-
-                // 加载第一个配置的数据
-                const firstConfigId = configData.ddns[0].id;
-                currentSelectedConfig = firstConfigId;
-                loadConfig(firstConfigId);
-            } else {
-                // 没有数据时，使用默认配置
-                currentSelectedConfig = $select.val();
-                clearFormFields();
-            }
+        if (e.target.closest(".dnet-rule-del")) {
+          removeRow(group);
+          return;
         }
-
-        // 保存指定配置数据
-        function saveCurrentConfig(configName) {
-            if (!configName) configName = $cache.configSelect.val();
-            if (!configName) return;
-
-            // 获取现有配置，保留 name 字段（如果已存在）
-            const existingConfig = getConfigById(configName);
-            const customName = existingConfig && existingConfig.name ? existingConfig.name : '';
-
-            // 获取选中的记录类型
-            const selectedTypes = getSelectedRecordTypes();
-
-            const configObj = {
-                id: configName,
-                name: customName,
-                domain: $cache.domainInput.val(),
-                service: $('input[name="service"]:checked').val(),
-                access_key: $('input[name="access_key"]').val(),
-                access_secret: $('input[name="access_secret"]').val(),
-                ttl: $('select[name="ttl"]').val(),
-                types: selectedTypes, // 多记录类型数组
-                records: {} // 存储各类型的配置
-            };
-
-            // 根据记录类型收集对应的字段
-            selectedTypes.forEach(function(recordType) {
-                if (recordType === 'A') {
-                    const ipv4Type = $cache.ipv4Type.val();
-                    configObj.records['A'] = {
-                        ip_type: ipv4Type,
-                        value: '',
-                        regex: ''
-                    };
-                    // 根据 IPv4 类型获取对应的值
-                    switch(ipv4Type) {
-                        case 'static_ipv4':
-                            configObj.records['A'].value = $cache.staticIpv4.val();
-                            break;
-                        case 'dynamic_ipv4_url':
-                            configObj.records['A'].value = $cache.dynamicIpv4Url.val();
-                            break;
-                        case 'dynamic_ipv4_interface':
-                            configObj.records['A'].value = $cache.dynamicIpv4Interface.val();
-                            break;
-                        case 'dynamic_ipv4_command':
-                            configObj.records['A'].value = $cache.dynamicIpv4Command.val();
-                            break;
-                    }
-                } else if (recordType === 'AAAA') {
-                    const ipv6Type = $cache.ipv6Type.val();
-                    configObj.records['AAAA'] = {
-                        ip_type: ipv6Type,
-                        value: '',
-                        regex: ''
-                    };
-                    // 根据 IPv6 类型获取对应的值
-                    switch(ipv6Type) {
-                        case 'static_ipv6':
-                            configObj.records['AAAA'].value = $cache.staticIpv6.val();
-                            break;
-                        case 'dynamic_ipv6_url':
-                            configObj.records['AAAA'].value = $cache.dynamicIpv6Url.val();
-                            break;
-                        case 'dynamic_ipv6_interface':
-                            configObj.records['AAAA'].value = $cache.dynamicIpv6Interface.val();
-                            configObj.records['AAAA'].regex = $cache.dynamicIpv6Regex.val();
-                            break;
-                        case 'dynamic_ipv6_command':
-                            configObj.records['AAAA'].value = $cache.dynamicIpv6Command.val();
-                            break;
-                    }
-                } else if (recordType === 'CNAME') {
-                    configObj.records['CNAME'] = {
-                        value: $cache.cname.val()
-                    };
-                } else if (recordType === 'TXT') {
-                    configObj.records['TXT'] = {
-                        value: $cache.txt.val()
-                    };
-                }
-            });
-
-            // 查找并更新或添加配置
-            const index = findConfigIndex(configName);
-            if (index !== -1) {
-                configData.ddns[index] = configObj;
-            } else {
-                configData.ddns.push(configObj);
-            }
+        if (e.target.closest("[data-add-rec]")) {
+          addRecord(outer, group);
+          return;
         }
-
-        // 加载配置数据
-        function loadConfig(configValue) {
-            const config = getConfigById(configValue);
-            if (!config) return;
-
-            // 恢复基本配置
-            $cache.domainInput.val(config.domain || '');
-            $('input[name="service"][value="' + (config.service || firstDNSProvider) + '"]').prop('checked', true);
-            $('select[name="ttl"]').val(config.ttl || 'AUTO');
-
-            // 更新下拉选项显示文本
-            const $option = $cache.configSelect.find('option[value="' + configValue + '"]');
-            if (config.name) {
-                $option.text(config.name);
-            } else if (config.domain) {
-                $option.text(configValue + ' - ' + config.domain);
-            } else {
-                $option.text(configValue);
-            }
-
-            // 先更新DNS提供商相关的表单字段（可能会重新创建 access_key 和 access_secret 字段）
-            updateFormBasedOnProvider(config.service || firstDNSProvider);
-
-            // 然后再设置 access_key 和 access_secret 的值（确保字段已存在）
-            $('input[name="access_key"]').val(config.access_key || '');
-            $('input[name="access_secret"]').val(config.access_secret || '');
-
-            // 处理新旧数据格式兼容
-            let typesToLoad = [];
-            if (config.types && Array.isArray(config.types)) {
-                // 新格式：多记录类型
-                typesToLoad = config.types;
-            } else if (config.type) {
-                // 旧格式：单记录类型，转换为数组
-                typesToLoad = [config.type];
-            }
-
-            // 先取消所有复选框
-            $('input[name="type"]').prop('checked', false);
-
-            // 恢复记录类型选中状态和相关字段
-            typesToLoad.forEach(function(recordType) {
-                // 选中对应的复选框
-                $('input[name="type"][value="' + recordType + '"]').prop('checked', true);
-
-                if (recordType === 'A') {
-                    const recordData = config.records && config.records['A'] ? config.records['A'] :
-                                      (config.type === 'A' ? config : {});
-                    const ipType = recordData.ip_type || defaultConfig.ipv4_type;
-                    $cache.ipv4Type.val(ipType);
-                    // 根据 IP 类型恢复对应的值
-                    switch(ipType) {
-                        case 'static_ipv4':
-                            $cache.staticIpv4.val(recordData.value || '');
-                            break;
-                        case 'dynamic_ipv4_url':
-                            $cache.dynamicIpv4Url.val(recordData.value || defaultConfig.dynamic_ipv4_url);
-                            break;
-                        case 'dynamic_ipv4_interface':
-                            $cache.dynamicIpv4Interface.val(recordData.value || selectFirstOption('select[name="dynamic_ipv4_interface"]'));
-                            break;
-                        case 'dynamic_ipv4_command':
-                            $cache.dynamicIpv4Command.val(recordData.value || '');
-                            break;
-                    }
-                } else if (recordType === 'AAAA') {
-                    const recordData = config.records && config.records['AAAA'] ? config.records['AAAA'] :
-                                      (config.type === 'AAAA' ? config : {});
-                    const ipType = recordData.ip_type || defaultConfig.ipv6_type;
-                    $cache.ipv6Type.val(ipType);
-                    // 根据 IP 类型恢复对应的值
-                    switch(ipType) {
-                        case 'static_ipv6':
-                            $cache.staticIpv6.val(recordData.value || '');
-                            break;
-                        case 'dynamic_ipv6_url':
-                            $cache.dynamicIpv6Url.val(recordData.value || defaultConfig.dynamic_ipv6_url);
-                            break;
-                        case 'dynamic_ipv6_interface':
-                            $cache.dynamicIpv6Interface.val(recordData.value || selectFirstOption('select[name="dynamic_ipv6_interface"]'));
-                            $cache.dynamicIpv6Regex.val(recordData.regex || '');
-                            break;
-                        case 'dynamic_ipv6_command':
-                            $cache.dynamicIpv6Command.val(recordData.value || '');
-                            break;
-                    }
-                } else if (recordType === 'CNAME') {
-                    const recordData = config.records && config.records['CNAME'] ? config.records['CNAME'] :
-                                      (config.type === 'CNAME' ? config : {});
-                    $cache.cname.val(recordData.value || '');
-                } else if (recordType === 'TXT') {
-                    const recordData = config.records && config.records['TXT'] ? config.records['TXT'] :
-                                      (config.type === 'TXT' ? config : {});
-                    $cache.txt.val(recordData.value || '');
-                }
-            });
-
-            // 重新渲染表单并更新显示
-            updateProviderRecordTypes(config.service || firstDNSProvider);
-            form.render();
-            updateRecordTypeFields(getSelectedRecordTypes());
+        if (e.target.closest("[data-del-rec]")) {
+          const row = e.target.closest(".dnet-sub-row");
+          if (row) removeRecord(outer, group, Number(row.dataset.idx));
         }
+      });
 
-        // 使用默认配置初始化表单字段
-        function clearFormFields() {
-            // 使用默认配置填充基本字段
-            $cache.domainInput.val(defaultConfig.domain || '');
-            const defaultProvider = defaultConfig.service || firstDNSProvider;
-            $('input[name="service"][value="' + defaultProvider + '"]').prop('checked', true);
-            $('input[name="access_key"]').val(defaultConfig.access_key || '');
-            $('input[name="access_secret"]').val(defaultConfig.access_secret || '');
-            $('select[name="ttl"]').val('AUTO');
+      document.querySelector("#add-row").onclick = addRow;
+      document.querySelector("#reload").onclick = reload;
+      document.querySelector("#probe-all").onclick = () => probeAll(true);
+      for (const button of document.querySelectorAll(".reset"))
+        button.onclick = reset;
 
-            // 清空并设置默认记录类型（复选框）
-            $('input[name="type"]').prop('checked', false);
-            const defaultType = defaultConfig.type || 'AAAA';
-            $('input[name="type"][value="' + defaultType + '"]').prop('checked', true);
-
-            // 清空 IPv4 字段
-            $cache.ipv4Type.val(defaultConfig.ipv4_type);
-            $cache.staticIpv4.val('');
-            $cache.dynamicIpv4Url.val(defaultConfig.dynamic_ipv4_url);
-            selectFirstOption('select[name="dynamic_ipv4_interface"]');
-            $cache.dynamicIpv4Command.val('');
-
-            // 清空 IPv6 字段
-            $cache.ipv6Type.val(defaultConfig.ipv6_type);
-            $cache.staticIpv6.val('');
-            $cache.dynamicIpv6Url.val(defaultConfig.dynamic_ipv6_url);
-            selectFirstOption('select[name="dynamic_ipv6_interface"]');
-            $cache.dynamicIpv6Regex.val('');
-            $cache.dynamicIpv6Command.val('');
-
-            // 清空 CNAME 和 TXT 字段
-            $cache.cname.val('');
-            $cache.txt.val('');
-
-            // 更新表单以匹配默认服务商
-            updateFormBasedOnProvider(defaultProvider);
-
-            // 重新渲染表单
-            form.render();
-            updateRecordTypeFields(defaultConfig.type || 'A');
+      form.on("submit(save)", function () {
+        submit();
+        return false;
+      });
+      form.on("switch(global-enable)", (data) => {
+        enabled = data.elem.checked;
+        markDirty();
+        renderStat();
+      });
+      window.addEventListener("beforeunload", (e) => {
+        if (dirty) {
+          e.preventDefault();
+          e.returnValue = "";
         }
+      });
 
-        // 新增配置
-        $('#config-add').on('click', function () {
-            if (!validateLayuiForm(form, layer, $)) {
-                return false;
-            }
-            // 检查当前是否已输入域名
-            const domainValue = $('input[name="domain"]').val().trim();
-            if (!domainValue) {
-                layer.msg('请先输入域名后再添加新配置', {
-                    icon: 0,
-                    time: 2000,
-                    shade: 0.1
-                });
-                $('input[name="domain"]').focus();
-                return false;
-            }
-            // 验证域名格式
-            if (!isValidAuthDomain(domainValue)) {
-                layer.msg('请输入正确的域名格式后再添加新配置，例如：dns.example.com', {
-                    icon: 2,
-                    time: 3000,
-                    shade: 0.1
-                });
-                $('input[name="domain"]').focus();
-                return false;
-            }
-            // 保存当前配置数据
-            saveCurrentConfig();
-
-            // 添加新选项
-            const configSelect = $('select[name="config"]');
-            const newValue = (parseInt(configSelect.find('option:last').val()) || 0) + 1;
-            const newOption = '<option value="' + newValue + '" selected>' + newValue + '</option>';
-            configSelect.append(newOption);
-            unsavedChanges.markDirty();
-
-            // 重新渲染表单（Layui 特有）
-            form.render('select');
-
-            // 更新当前选中的配置
-            currentSelectedConfig = String(newValue);
-
-            // 清空所有表单字段，为新配置做准备
-            clearFormFields();
-
-            return false;
-        });
-
-        // 重命名当前配置
-        $('#config-rename').on('click', function () {
-            const $select = $('select[name="config"]');
-            const currentValue = $select.val();
-            const currentDisplayText = $select.find('option[value="' + currentValue + '"]').text();
-
-            if (!currentValue) {
-                layer.msg('请先选择一个配置项', {
-                    icon: 0,
-                    time: 2000
-                });
-                return false;
-            }
-
-            // 弹出输入框
-            layer.prompt({
-                title: '重命名配置 ' + currentValue,
-                formType: 0, // 文本输入框
-                value: currentDisplayText, // 使用当前显示文本作为默认值
-                maxlength: 50
-            }, function (value, index, elem) {
-                // 去除空格
-                value = value.trim();
-
-                if (!value) {
-                    layer.msg('配置名不能为空', {
-                        icon: 2,
-                        time: 2000
-                    });
-                    return false;
-                }
-
-                unsavedChanges.markDirty();
-                // 只更新选项的显示文本，保持value不变
-                $select.find('option[value="' + currentValue + '"]').text(value);
-
-                // 更新 configData 中的配置数据的name字段
-                let config = getConfigById(currentValue);
-                if (config) {
-                    config.name = value;
-                } else {
-                    // 如果配置不存在，先保存当前配置，再设置name
-                    saveCurrentConfig(currentValue);
-                    config = getConfigById(currentValue);
-                    if (config) {
-                        config.name = value;
-                    }
-                }
-
-                // 重新渲染表单
-                form.render('select');
-
-                layer.close(index);
-                layer.msg('重命名成功', {
-                    icon: 1,
-                    time: 1500
-                });
-            });
-            return false;
-        });
-
-        // 删除当前配置
-        $('#config-remove').on('click', function () {
-            const $select = $('select[name="config"]');
-            const currentValue = $select.val();
-            const currentDisplayText = $select.find('option[value="' + currentValue + '"]').text();
-
-            // 检查是否有选中的值且选项数量大于1
-            if (currentValue && $select.find('option').length > 1) {
-                // 弹出确认框，显示选项的显示文本
-                layer.confirm('确定要删除配置 "' + currentDisplayText + '" 吗？', {
-                    btn: ['确定', '取消']
-                }, function (index) {
-                    // 确定删除
-                    unsavedChanges.markDirty();
-                    // 删除 configData 中对应的数据
-                    const configIndex = findConfigIndex(currentValue);
-                    if (configIndex !== -1) {
-                        configData.ddns.splice(configIndex, 1);
-                    }
-
-                    // 移除当前选中的选项
-                    $select.find('option[value="' + currentValue + '"]').remove();
-
-                    // 选择最后一个剩余的选项
-                    $select.find('option:last').prop('selected', true);
-                    // 更新当前选中的配置
-                    currentSelectedConfig = $select.find('option:last').val();
-
-                    // 重新渲染表单
-                    form.render('select');
-
-                    // 加载新选中配置的数据
-                    const existingConfig = getConfigById(currentSelectedConfig);
-                    if (existingConfig) {
-                        loadConfig(currentSelectedConfig);
-                    } else {
-                        clearFormFields();
-                    }
-
-                    layer.close(index);
-                });
-            } else {
-                layer.msg('至少需要保留一个配置项');
-            }
-            return false;
-        });
-
-        // 域名输入监听
-        $('input[name="domain"]').on('blur', function () {
-            const domainValue = $(this).val().trim();
-            const $select = $('select[name="config"]');
-            const currentValue = $select.val();
-
-            // 检查当前配置是否存在 name 字段（已被重命名）
-            const currentConfig = getConfigById(currentValue);
-            const hasCustomName = currentConfig && currentConfig.name;
-            if (hasCustomName) {
-                // 如果配置已被重命名，则不更新显示
-                return;
-            }
-            if (domainValue) {
-                // 验证域名格式
-                if (isValidAuthDomain(domainValue)) {
-                    // 域名格式正确，更新当前选中的配置项显示
-                    const newDisplayText = currentValue + ' - ' + domainValue;
-                    $select.find('option[value="' + currentValue + '"]').text(newDisplayText);
-
-                    // 重新渲染select
-                    form.render('select');
-                } else {
-                    // 域名格式错误
-                    layer.msg('域名格式不正确，请输入正确格式，例如：ddns.example.com', {
-                        icon: 2,
-                        time: 3000,
-                        shade: 0.1
-                    });
-                }
-            } else {
-                // 域名为空时，恢复显示为纯序号（仅当未重命名时）
-                $select.find('option[value="' + currentValue + '"]').text(currentValue);
-                form.render('select');
-            }
-        });
-
-        // 配置项切换监听
-        form.on('select(config-select-filter)', function (data) {
-            if (data.elem.name === 'config') {
-                // 保存切换前的配置数据
-                if (currentSelectedConfig) {
-                    saveCurrentConfig(currentSelectedConfig);
-                }
-                // 更新当前选中的配置
-                currentSelectedConfig = data.value;
-                // 加载新选择的配置数据，如果没有保存的数据则清空表单
-                if (getConfigById(data.value)) {
-                    loadConfig(data.value);
-                } else {
-                    clearFormFields();
-                }
-            }
-        });
-
-
-        // 显示/隐藏 IPv4 相关字段
-        function toggleIPv4Fields(show) {
-            const ipv4Elements = [
-                '#ipv4_type',
-                '#static_ipv4', '#dynamic_ipv4_url',
-                '#dynamic_ipv4_interface', '#dynamic_ipv4_command'
-            ];
-            ipv4Elements.forEach(function (selector) {
-                const $element = $(selector).closest('.layui-form-item');
-                if (show) {
-                    $element.show();
-                } else {
-                    $element.hide();
-                }
-            });
-            // 显示/隐藏 IPv4 fieldset
-            if (show) {
-                $('#ipv4-fieldset').show();
-            } else {
-                $('#ipv4-fieldset').hide();
-            }
-        }
-
-        // 显示/隐藏 IPv6 相关字段
-        function toggleIPv6Fields(show) {
-            const ipv6Elements = [
-                '#ipv6_type',
-                '#static_ipv6', '#dynamic_ipv6_url',
-                '#dynamic_ipv6_interface', '#dynamic_ipv6_regex', '#dynamic_ipv6_command'
-            ];
-            ipv6Elements.forEach(function (selector) {
-                const $element = $(selector).closest('.layui-form-item');
-                if (show) {
-                    $element.show();
-                } else {
-                    $element.hide();
-                }
-            });
-            // 显示/隐藏 IPv6 fieldset
-            if (show) {
-                $('#ipv6-fieldset').show();
-            } else {
-                $('#ipv6-fieldset').hide();
-            }
-        }
-
-        // 显示/隐藏 CNAME 字段
-        function toggleCNAMEField(show) {
-            const $cnameElement = $('#cname').closest('.layui-form-item');
-            if (show) {
-                $cnameElement.show();
-                $('#cname-fieldset').show();
-            } else {
-                $cnameElement.hide();
-                $('#cname-fieldset').hide();
-            }
-        }
-
-        // 显示/隐藏 TXT 字段
-        function toggleTXTField(show) {
-            const $txtElement = $('#txt').closest('.layui-form-item');
-            if (show) {
-                $txtElement.show();
-                $('#txt-fieldset').show();
-            } else {
-                $txtElement.hide();
-                $('#txt-fieldset').hide();
-            }
-        }
-
-        // 根据 IPv4 类型显示对应字段
-        function updateIPv4TypeFields(selectedType) {
-            // 隐藏所有 IPv4 输入字段
-            $cache.staticIpv4.closest('.layui-form-item').hide();
-            $cache.dynamicIpv4Url.closest('.layui-form-item').hide();
-            $cache.dynamicIpv4Interface.closest('.layui-form-item').hide();
-            $cache.dynamicIpv4Command.closest('.layui-form-item').hide();
-
-            // 根据选择显示对应字段
-            switch (selectedType) {
-                case 'static_ipv4':
-                    $cache.staticIpv4.closest('.layui-form-item').show();
-                    break;
-                case 'dynamic_ipv4_url':
-                    $cache.dynamicIpv4Url.closest('.layui-form-item').show();
-                    // 如果输入框为空，填充默认值
-                    if (!$cache.dynamicIpv4Url.val()) {
-                        $cache.dynamicIpv4Url.val(defaultConfig.dynamic_ipv4_url);
-                    }
-                    break;
-                case 'dynamic_ipv4_interface':
-                    $cache.dynamicIpv4Interface.closest('.layui-form-item').show();
-                    // 如果当前值为空，默认选择第一个网卡
-                    selectFirstOption('select[name="dynamic_ipv4_interface"]');
-                    form.render('select');
-                    break;
-                case 'dynamic_ipv4_command':
-                    $cache.dynamicIpv4Command.closest('.layui-form-item').show();
-                    break;
-            }
-        }
-
-        // 根据 IPv6 类型显示对应字段
-        function updateIPv6TypeFields(selectedType) {
-            // 隐藏所有 IPv6 输入字段
-            $cache.staticIpv6.closest('.layui-form-item').hide();
-            $cache.dynamicIpv6Url.closest('.layui-form-item').hide();
-            $cache.dynamicIpv6Interface.closest('.layui-form-item').hide();
-            $cache.dynamicIpv6Regex.closest('.layui-form-item').hide();
-            $cache.dynamicIpv6Command.closest('.layui-form-item').hide();
-
-            // 根据选择显示对应字段
-            switch (selectedType) {
-                case 'static_ipv6':
-                    $cache.staticIpv6.closest('.layui-form-item').show();
-                    break;
-                case 'dynamic_ipv6_url':
-                    $cache.dynamicIpv6Url.closest('.layui-form-item').show();
-                    // 如果输入框为空，填充默认值
-                    if (!$cache.dynamicIpv6Url.val()) {
-                        $cache.dynamicIpv6Url.val(defaultConfig.dynamic_ipv6_url);
-                    }
-                    break;
-                case 'dynamic_ipv6_interface':
-                    $cache.dynamicIpv6Interface.closest('.layui-form-item').show();
-                    $cache.dynamicIpv6Regex.closest('.layui-form-item').show();
-                    // 如果当前值为空，默认选择第一个网卡
-                    selectFirstOption('select[name="dynamic_ipv6_interface"]');
-                    form.render('select');
-                    break;
-                case 'dynamic_ipv6_command':
-                    $cache.dynamicIpv6Command.closest('.layui-form-item').show();
-                    break;
-            }
-        }
-
-        // 获取当前选中的记录类型数组
-        function getSelectedRecordTypes() {
-            const selectedTypes = [];
-            $('input[name="type"]:checked').each(function() {
-                selectedTypes.push($(this).val());
-            });
-            return selectedTypes;
-        }
-
-        // 根据记录类型显示对应部分（支持多选）
-        function updateRecordTypeFields(selectedTypes) {
-            if (!Array.isArray(selectedTypes)) {
-                selectedTypes = [selectedTypes];
-            }
-
-            const hasA = selectedTypes.includes('A');
-            const hasAAAA = selectedTypes.includes('AAAA');
-            const hasCNAME = selectedTypes.includes('CNAME');
-            const hasTXT = selectedTypes.includes('TXT');
-
-            // 显示/隐藏对应字段
-            toggleIPv4Fields(hasA);
-            toggleIPv6Fields(hasAAAA);
-            toggleCNAMEField(hasCNAME);
-            toggleTXTField(hasTXT);
-
-            // 触发类型选择器更新
-            if (hasA) {
-                updateIPv4TypeFields($('#ipv4_type').val());
-            }
-            if (hasAAAA) {
-                updateIPv6TypeFields($('#ipv6_type').val());
-            }
-        }
-
-        // 监听记录类型复选框变化
-        form.on('checkbox(type-checkbox)', function (data) {
-            const $checkbox = $(data.elem);
-            const value = $checkbox.val();
-
-            // CNAME 互斥逻辑
-            if (value === 'CNAME' && data.elem.checked) {
-                // 选中 CNAME 时，取消其他类型
-                $('input[name="type"]').not(data.elem).each(function() {
-                    $(this).prop('checked', false);
-                });
-                form.render('checkbox');
-                layer.msg('CNAME 记录不能与其他类型同时使用', {icon: 0, time: 2000});
-            } else if (value !== 'CNAME' && data.elem.checked) {
-                // 选中非 CNAME 时，取消 CNAME
-                const $cnameCheckbox = $('input[name="type"][value="CNAME"]');
-                if ($cnameCheckbox.prop('checked')) {
-                    $cnameCheckbox.prop('checked', false);
-                    form.render('checkbox');
-                }
-            }
-
-            // 更新字段显示
-            const selectedTypes = getSelectedRecordTypes();
-            updateRecordTypeFields(selectedTypes);
-        });
-
-        // 监听 IPv4 类型变化
-        form.on('select(ipv4-type-filter)', function (data) {
-            updateIPv4TypeFields(data.value);
-        });
-
-        // 监听 IPv6 类型变化
-        form.on('select(ipv6-type-filter)', function (data) {
-            updateIPv6TypeFields(data.value);
-        });
-
-        // 页面加载时初始化显示状态
-        $(function () {
-            const selectedTypes = getSelectedRecordTypes();
-            if (selectedTypes.length > 0) {
-                updateRecordTypeFields(selectedTypes);
-            } else {
-                // 默认选中 AAAA
-                $('input[name="type"][value="AAAA"]').prop('checked', true);
-                form.render('checkbox');
-                updateRecordTypeFields(['AAAA']);
-            }
-        });
-
-        // 初始化 DNS 提供商选择
-        initDNSProviders();
-        // 初始化配置数据（必须在所有事件绑定完成后调用）
-        initConfigData();
-        // 恢复 ddns_enable 状态
-        if (typeof configData.ddns_enable !== 'undefined') {
-            $('input[name="ddns_enable"]').prop('checked', configData.ddns_enable);
-            form.render('checkbox');
-        }
+      // 初始数据全部来自模板注入的 configData，没有可用的 JSON GET
+      const injected =
+        configData && typeof configData === "object"
+          ? configData
+          : { ddns_enable: false, ddns: [] };
+      loaded = true;
+      restore(injected);
+      // saved 存的是「归一化之后」的状态（ttl 补默认、records 保证是数组），
+      // 复位时直接回到这里
+      saved = clone({ ddns_enable: enabled, ddns: groups });
+      // 首次进来主动查一遍线上解析：这是「我现在配的到底生效没有」最直接的答案。
+      probeAll(false);
     });
-</script>
+  </script>
 </html>

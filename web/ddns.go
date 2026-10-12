@@ -91,6 +91,10 @@ func (s *Server) handleDDNSPost(writer http.ResponseWriter, request *http.Reques
 
 	// CacheTimes 由「系统设置」页面管理，此接口不携带，需保留旧值
 	configData.CacheTimes = conf.DDNSConfig.CacheTimes
+	// 全局凭据同样由「系统设置 → DNS 服务商」管理，DDNS 页不携带，保留旧值；
+	// 顺手把老配置里还写在域名行上的凭据提到全局一份，用户不用手动重填。
+	configData.Credentials = conf.DDNSConfig.Credentials
+	config.MigrateLegacyCredentials(&configData)
 
 	// 更新 DDNS 配置
 	conf.DDNSConfig = configData

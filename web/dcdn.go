@@ -91,6 +91,10 @@ func (s *Server) handleDCDNPost(writer http.ResponseWriter, request *http.Reques
 
 	// CacheTimes 由「系统设置」页面管理，此接口不携带，需保留旧值
 	configData.CacheTimes = conf.DCDNConfig.CacheTimes
+	// 全局凭据同样由「系统设置 → 服务商凭据」管理，DCDN 页不携带，保留旧值；
+	// 顺手把老配置里还写在域名行上的凭据提到全局一份，用户不用手动重填。
+	configData.Credentials = conf.DCDNConfig.Credentials
+	config.MigrateLegacyCDNCredentials(&configData)
 
 	// 更新 DCDN 配置
 	conf.DCDNConfig = configData

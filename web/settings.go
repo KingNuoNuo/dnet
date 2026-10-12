@@ -6,7 +6,9 @@ import (
 	"html/template"
 	"net/http"
 	"os"
+	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/cxbdasheng/dnet/config"
 	"github.com/cxbdasheng/dnet/helper"
@@ -35,6 +37,10 @@ type SettingsRequest struct {
 	Every             int    `json:"every"`
 	DCDNCacheTimes    int    `json:"dcdn_cache_times"`
 	DDNSCacheTimes    int    `json:"ddns_cache_times"`
+	// DNSCredentials 一组服务商凭据，整体覆盖 —— 页面上的增删就是最终结果
+	DNSCredentials []config.DNSCredential `json:"dns_credentials"`
+	// CDNCredentials CDN 服务商凭据，与 DNSCredentials 同一套结构、分开存
+	CDNCredentials []config.DNSCredential `json:"cdn_credentials"`
 }
 
 func (s *Server) Settings(writer http.ResponseWriter, request *http.Request) {
@@ -97,6 +103,10 @@ func (s *Server) handleSettingsGet(writer http.ResponseWriter, request *http.Req
 		EveryLocked          bool
 		DCDNCacheTimesLocked bool
 		DDNSCacheTimesLocked bool
+		// DNSCreds 服务商凭据（已脱敏）。只给「系统设置 → 服务商凭据」这一块用。
+		DNSCreds template.JS
+		// CDNCreds CDN 服务商凭据（已脱敏），同一个 tab 里的 CDN 分区用。
+		CDNCreds template.JS
 	}{
 		conf.User,
 		settings,
@@ -105,6 +115,8 @@ func (s *Server) handleSettingsGet(writer http.ResponseWriter, request *http.Req
 		everyLocked,
 		dcdnLocked,
 		ddnsLocked,
+		template.JS(config.GetDNSCredentialsJSON(conf.DDNSConfig)),
+		template.JS(config.GetCDNCredentialsJSON(conf.DCDNConfig)),
 	})
 	if err != nil {
 		helper.Error(helper.LogTypeConfig, "执行 settings 模板失败: %v", err)
@@ -138,6 +150,25 @@ func (s *Server) handleSettingsPost(writer http.ResponseWriter, request *http.Re
 	}
 	conf.NotAllowWanAccess = settingsReq.NotAllowWanAccess
 	conf.Username = settingsReq.Username
+
+	// DNS 服务商凭据：页面上传的是打码值（没改过）或新填的明文，先按脱敏结果
+	// 还原，再整体覆盖。校验放在前面，坏数据不进配置。
+	credentials, errMsg := normalizeDNSCredentials(settingsReq.DNSCredentials, conf.DDNSConfig.Credentials)
+	if errMsg != "" {
+		helper.ReturnError(writer, errMsg)
+		return
+	}
+	credentialsChanged := !reflect.DeepEqual(credentials, conf.DDNSConfig.Credentials)
+	conf.DDNSConfig.Credentials = credentials
+
+	// CDN 服务商凭据：同一套校验与脱敏还原规则（callback 同样不允许进全局）
+	cdnCredentials, cdnErrMsg := normalizeDNSCredentials(settingsReq.CDNCredentials, conf.DCDNConfig.Credentials)
+	if cdnErrMsg != "" {
+		helper.ReturnError(writer, cdnErrMsg)
+		return
+	}
+	cdnCredentialsChanged := !reflect.DeepEqual(cdnCredentials, conf.DCDNConfig.Credentials)
+	conf.DCDNConfig.Credentials = cdnCredentials
 	// CLI 锁定的字段不接受 Web UI 更新，保留用户已有的 config 值
 	// （用户后续移除 CLI 参数重启后，仍能拿回之前的配置）
 	if everyLocked, _ := cliOverride(config.CLIEveryENV); !everyLocked {
@@ -164,5 +195,68 @@ func (s *Server) handleSettingsPost(writer http.ResponseWriter, request *http.Re
 		return
 	}
 
+	// 凭据改了就立刻用新密钥同步一次，不必等下一个周期、也不用重启
+	// （syncer 允许为 nil —— 测试构造 Server 时不带同步器）
+	if s.syncer != nil {
+		if credentialsChanged {
+			s.syncer.TriggerDDNSSyncAsync()
+		}
+		if cdnCredentialsChanged {
+			s.syncer.TriggerDCDNSyncAsync()
+		}
+	}
+
 	helper.ReturnSuccess(writer, "配置保存成功", nil)
+}
+
+// normalizeDNSCredentials 校验一组服务商凭据，并把「没改过的打码值」还原成明文。
+// DNS 与 CDN 两个分区共用同一套规则。
+//
+// 页面上的密钥是打码回显的（见 GetDNSCredentialsJSON）。用户没动过就一直带着
+// 那串星号提交回来，这里按脱敏结果比对认出来，换回库里的原始值 —— 与 DDNS
+// 页面走的是同一套规则，免得出现「在设置页点一下保存，密钥就变成一串星号」。
+func normalizeDNSCredentials(input []config.DNSCredential, oldCreds []config.DNSCredential) ([]config.DNSCredential, string) {
+	oldCredMap := make(map[string]config.DNSCredential, len(oldCreds))
+	for _, item := range oldCreds {
+		oldCredMap[item.Service] = item
+	}
+	restored := make([]config.DNSCredential, len(input))
+	copy(restored, input)
+	for i := range restored {
+		old, exists := oldCredMap[restored[i].Service]
+		if !exists {
+			continue
+		}
+		if restored[i].AccessKey == config.MaskSensitiveString(old.AccessKey) {
+			restored[i].AccessKey = old.AccessKey
+		}
+		if restored[i].AccessSecret == config.MaskSensitiveString(old.AccessSecret) {
+			restored[i].AccessSecret = old.AccessSecret
+		}
+	}
+
+	seen := make(map[string]bool, len(restored))
+	out := make([]config.DNSCredential, 0, len(restored))
+	for _, credential := range restored {
+		service := strings.TrimSpace(credential.Service)
+		if service == "" {
+			return nil, "请选择 DNS 服务商"
+		}
+		if config.LegacyCredentialServices[service] {
+			return nil, "该服务商的凭据按域名单独配置，不能在这里统一设置"
+		}
+		if seen[service] {
+			return nil, "同一个服务商只能配置一份凭据"
+		}
+		if strings.TrimSpace(credential.AccessKey) == "" && strings.TrimSpace(credential.AccessSecret) == "" {
+			return nil, "凭据不能为空"
+		}
+		seen[service] = true
+		out = append(out, config.DNSCredential{
+			Service:      service,
+			AccessKey:    credential.AccessKey,
+			AccessSecret: credential.AccessSecret,
+		})
+	}
+	return out, ""
 }

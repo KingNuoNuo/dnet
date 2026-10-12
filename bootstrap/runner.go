@@ -148,6 +148,13 @@ func (r *Runner) processDCDNServices(conf *config.Config) {
 			continue
 		}
 
+		// 凭据统一在「系统设置 → 服务商凭据」里按服务商保存一份，这里把它填进
+		// 本次运行用的副本再交给 provider —— provider 仍然是「从 CDN 结构读凭据」，
+		// 一行都不用改。provider 只会回写 CName（base.go 里唯一对 CDN 的赋值），
+		// 用副本是为了不把全局密钥持久化到域名行上，处理完把 CName 拷回来。
+		runCDN := conf.DCDNConfig.DCDN[i]
+		applyGlobalCDNCredential(&runCDN, conf.DCDNConfig)
+
 		var cdnSelected dcdn.CDN
 		switch conf.DCDNConfig.DCDN[i].Service {
 		case "aliyun":
@@ -167,8 +174,9 @@ func (r *Runner) processDCDNServices(conf *config.Config) {
 		default:
 			cdnSelected = &dcdn.Aliyun{}
 		}
-		cdnSelected.Init(&conf.DCDNConfig.DCDN[i], &r.dcdnCaches[i])
+		cdnSelected.Init(&runCDN, &r.dcdnCaches[i])
 		cdnSelected.UpdateOrCreateSources()
+		conf.DCDNConfig.DCDN[i].CName = runCDN.CName
 		if conf.WebhookEnabled && cdnSelected.ShouldSendWebhook() {
 			config.ExecWebhook(&conf.Webhook, string(helper.LogTypeDCDN), cdnSelected.GetServiceName(), cdnSelected.GetServiceStatus(), formatDCDNChanges(cdnSelected.GetUpdateDetails()))
 		}
@@ -198,6 +206,13 @@ func (r *Runner) processDDNSServices(conf *config.Config) {
 		if group.Domain == "" {
 			continue
 		}
+
+		// 凭据统一在「系统设置 → DNS 服务商」里按服务商保存一份，这里把它填进
+		// 本次运行用的副本再交给 provider —— provider 仍然是「从 group 读凭据」，
+		// 一行都不用改。用副本是为了不回写配置：域名行不再持有密钥。
+		runGroup := *group
+		applyGlobalCredential(&runGroup, conf.DDNSConfig)
+		group = &runGroup
 
 		groupCaches := r.groupDDNSCaches(group)
 		if len(groupCaches) == 0 {
@@ -277,6 +292,44 @@ func (r *Runner) processDDNSServices(conf *config.Config) {
 	}
 
 	ddns.ForceCompareGlobal = false
+}
+
+// applyGlobalCredential 把系统设置里保存的服务商凭据填进本次运行的 group 副本。
+// callback 例外 —— 它的 AccessKey 是每个域名各自的回调 URL，不参与统一。
+// 全局没配时保留 group 自带的值，老配置（凭据还写在行上）继续能跑。
+func applyGlobalCredential(group *config.DNSGroup, conf config.DDNSConfig) {
+	if config.LegacyCredentialServices[group.Service] {
+		return
+	}
+	credential, ok := conf.CredentialFor(group.Service)
+	if !ok {
+		return
+	}
+	if credential.AccessKey != "" {
+		group.AccessKey = credential.AccessKey
+	}
+	if credential.AccessSecret != "" {
+		group.AccessSecret = credential.AccessSecret
+	}
+}
+
+// applyGlobalCDNCredential 把系统设置里保存的 CDN 服务商凭据填进本次运行的
+// CDN 副本，规则与 applyGlobalCredential 相同：callback 例外（凭据按域名各自
+// 配）、全局没配时保留行上自带的值（老配置继续能跑）。
+func applyGlobalCDNCredential(cdn *config.CDN, conf config.DCDNConfig) {
+	if config.LegacyCredentialServices[cdn.Service] {
+		return
+	}
+	credential, ok := conf.CredentialFor(cdn.Service)
+	if !ok {
+		return
+	}
+	if credential.AccessKey != "" {
+		cdn.AccessKey = credential.AccessKey
+	}
+	if credential.AccessSecret != "" {
+		cdn.AccessSecret = credential.AccessSecret
+	}
 }
 
 func (r *Runner) rebuildDDNSCaches(conf *config.Config) {
