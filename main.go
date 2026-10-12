@@ -127,6 +127,24 @@ func main() {
 	os.Setenv(config.DNETPort, *listen)
 
 	configRepo = config.NewRepository()
+
+	// 老配置迁移：凭据统一到系统设置之前，AK/SK 是写在每个域名/CDN 行上的。
+	// 只在「保存 DDNS/动态 CDN 页」时才收归全局的话，升级后第一次打开系统设置
+	// 会看到凭据是空的 —— 用户明明配过。启动时先提上来并落盘。
+	if conf, err := configRepo.Load(); err == nil {
+		moved := config.MigrateLegacyCredentials(&conf.DDNSConfig) +
+			config.MigrateLegacyCDNCredentials(&conf.DCDNConfig)
+		if moved > 0 {
+			if err := configRepo.Save(&conf); err != nil {
+				helper.Warn(helper.LogTypeSystem, "服务商凭据迁移落盘失败: %v", err)
+			} else {
+				helper.Info(helper.LogTypeSystem, "已把 %d 个服务商的凭据从域名/CDN配置收归到系统设置", moved)
+			}
+		}
+	} else {
+		helper.Warn(helper.LogTypeSystem, "启动时读取配置失败，跳过服务商凭据迁移: %v", err)
+	}
+
 	syncRunner = bootstrap.NewRunner(configRepo)
 	web.SetEmbeddedAssets(staticEmbeddedFiles, faviconEmbeddedFile)
 	webServer = web.NewServer(configRepo, syncRunner)

@@ -7,6 +7,11 @@ import (
 type DCDNConfig struct {
 	DCDNEnabled bool  `json:"dcdn_enable"`
 	DCDN        []CDN `json:"dcdn"`
+	// Credentials 与 DDNSConfig.Credentials 同一套结构：按服务商存一份 API 凭据，
+	// 统一在「系统设置 → 服务商凭据」里维护，动态 CDN 的域名行只挑服务商。
+	// json/yaml tag 用 cdn_credentials：Config 同时内嵌 DCDNConfig 和 DDNSConfig，
+	// 两边都叫 credentials 会撞 tag。
+	Credentials []DNSCredential `json:"cdn_credentials,omitempty" yaml:"cdn_credentials,omitempty"`
 	// 强制同步计数器初始值
 	CacheTimes int `json:"dcdn_cache_times,omitempty" yaml:"dcdn_cache_times,omitempty"`
 }
@@ -72,6 +77,56 @@ func maskSensitiveString(s string) string {
 	return s[:4] + strings.Repeat("*", maskCount) + s[length-4:]
 }
 
+// CredentialFor 取某个 CDN 服务商的全局凭据
+func (conf DCDNConfig) CredentialFor(service string) (DNSCredential, bool) {
+	for _, item := range conf.Credentials {
+		if item.Service == service {
+			return item, true
+		}
+	}
+	return DNSCredential{}, false
+}
+
+// MigrateLegacyCDNCredentials 把动态 CDN 配置里残留的凭据收到全局一份。
+// 逻辑与 MigrateLegacyCredentials 相同 —— 凭据统一到系统设置后，老配置里
+// 还写在域名行上的密钥顺手提上来，只补全局还没有的服务商。
+func MigrateLegacyCDNCredentials(conf *DCDNConfig) int {
+	if conf == nil {
+		return 0
+	}
+	known := make(map[string]bool, len(conf.Credentials))
+	for _, item := range conf.Credentials {
+		known[item.Service] = true
+	}
+	moved := 0
+	for i := range conf.DCDN {
+		cdn := &conf.DCDN[i]
+		if cdn.Service == "" || LegacyCredentialServices[cdn.Service] {
+			continue
+		}
+		if known[cdn.Service] {
+			// 全局已经有了：行上这一份就是迁移后的残留，清掉
+			cdn.AccessKey = ""
+			cdn.AccessSecret = ""
+			continue
+		}
+		if cdn.AccessKey == "" && cdn.AccessSecret == "" {
+			continue
+		}
+		conf.Credentials = append(conf.Credentials, DNSCredential{
+			Service:      cdn.Service,
+			AccessKey:    cdn.AccessKey,
+			AccessSecret: cdn.AccessSecret,
+		})
+		known[cdn.Service] = true
+		moved++
+		// 收归全局之后行上不再留密钥 —— 与 DDNS 同理，同一服务的密钥只留一处
+		cdn.AccessKey = ""
+		cdn.AccessSecret = ""
+	}
+	return moved
+}
+
 // RestoreSensitiveFields 恢复脱敏字段的原始值
 // 通过比对新值与旧值的脱敏结果，判断用户是否真正修改了敏感字段
 // 只有当新值与旧值脱敏后完全一致时，才使用旧值的原始值
@@ -99,6 +154,25 @@ func RestoreSensitiveFields(newConf, oldConf DCDNConfig) DCDNConfig {
 			if oldCDN.Domain != newConf.DCDN[i].Domain {
 				newConf.DCDN[i].CName = ""
 			}
+		}
+	}
+
+	// 全局凭据同理：系统设置页拿到的是打码值，原样提交回来时按脱敏结果
+	// 判断「没动过」，还原成原始值（与 RestoreSensitiveFieldsForDDNS 一致）
+	oldCredMap := make(map[string]DNSCredential, len(oldConf.Credentials))
+	for _, item := range oldConf.Credentials {
+		oldCredMap[item.Service] = item
+	}
+	for i := range newConf.Credentials {
+		old, exists := oldCredMap[newConf.Credentials[i].Service]
+		if !exists {
+			continue
+		}
+		if newConf.Credentials[i].AccessKey == maskSensitiveString(old.AccessKey) {
+			newConf.Credentials[i].AccessKey = old.AccessKey
+		}
+		if newConf.Credentials[i].AccessSecret == maskSensitiveString(old.AccessSecret) {
+			newConf.Credentials[i].AccessSecret = old.AccessSecret
 		}
 	}
 
