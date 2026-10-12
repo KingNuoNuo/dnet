@@ -206,13 +206,14 @@ func (s *Server) CertificatesAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	type entry struct {
 		certificates.Summary
-		Running   bool `json:"running"`
-		HasEABKey bool `json:"has_eab_key"`
-		HasToken  bool `json:"has_token"`
+		Running   bool   `json:"running"`
+		Progress  string `json:"progress,omitempty"` // 申请中的当前步骤，悬浮展示
+		HasEABKey bool   `json:"has_eab_key"`
+		HasToken  bool   `json:"has_token"`
 	}
 	list := []entry{}
 	for _, c := range conf.Certificates {
-		item := entry{Summary: certificates.Describe(c, time.Now()), Running: s.certificateJobs[c.ID], HasEABKey: c.EABHMACKey != "", HasToken: c.APIToken != ""}
+		item := entry{Summary: certificates.Describe(c, time.Now()), Running: s.certificateJobs[c.ID], Progress: s.certificateProgress[c.ID], HasEABKey: c.EABHMACKey != "", HasToken: c.APIToken != ""}
 		for _, rule := range conf.WebServiceRules {
 			if rule.CertificateID == c.ID {
 				item.UsedBy = append(item.UsedBy, rule.Name)
@@ -263,13 +264,20 @@ func (s *Server) startCertificateJob(id string) error {
 		return err
 	}
 	s.certificateJobs[id] = true
+	if s.certificateProgress == nil {
+		s.certificateProgress = map[string]string{}
+	}
 	helper.Info(helper.LogTypeSSL, "开始申请证书 [%s]", c.Name)
 	base := s.certificateContext
 	if base == nil {
 		base = context.Background()
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(base, 10*time.Minute)
+		// 进度回调：申请各阶段把当前步骤记到内存，列表接口读走做悬浮展示。
+		// 全局同时只允许一个申请任务（startCertificateJob 顶部互斥），map 无并发写。
+		ctx, cancel := context.WithTimeout(certificates.WithProgress(base, func(step string) {
+			s.certificateProgress[id] = step
+		}), 10*time.Minute)
 		defer cancel()
 		issuer := s.certificateIssuer
 		if issuer == nil {
@@ -279,6 +287,7 @@ func (s *Server) startCertificateJob(id string) error {
 		s.webServiceMu.Lock()
 		defer s.webServiceMu.Unlock()
 		delete(s.certificateJobs, id)
+		delete(s.certificateProgress, id)
 		latest, err := s.configRepo.Load()
 		if err != nil {
 			return

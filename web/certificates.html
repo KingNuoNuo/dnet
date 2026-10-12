@@ -543,22 +543,22 @@
         $("rows").replaceChildren();
         for (const c of items) {
           const tr = document.createElement("tr");
-          for (const text of [
-            c.name +
-              " / " +
-              { upload: "上传", path: "路径", acme: "ACME" }[c.source],
-            (c.covered_domains?.length
-              ? c.covered_domains
-              : c.domains || []
-            ).join(", "),
-            (c.running ? "申请中" : states[c.state] || c.state) +
-              (c.not_after && !c.not_after.startsWith("0001")
-                ? " / " + new Date(c.not_after).toLocaleDateString()
-                : ""),
-            (c.used_by || []).map((n) => "DWS: " + n).join(", ") || "未引用",
+          for (const [text, tip] of [
+            [c.name + " / " + { upload: "上传", path: "路径", acme: "ACME" }[c.source], ""],
+            [(c.covered_domains?.length ? c.covered_domains : c.domains || []).join(", "), ""],
+            [
+              (c.running ? "申请中" : states[c.state] || c.state) +
+                (c.not_after && !c.not_after.startsWith("0001")
+                  ? " / " + new Date(c.not_after).toLocaleDateString("sv-SE")
+                  : ""),
+              // 申请中时悬浮展示当前步骤（如「等待 DNS 验证记录生效」）
+              c.running && c.progress ? "申请进度：" + c.progress : "",
+            ],
+            [(c.used_by || []).map((n) => "DWS: " + n).join(", ") || "未引用", ""],
           ]) {
             const td = document.createElement("td");
             td.textContent = text;
+            if (tip) td.title = tip;
             tr.append(td);
           }
           const td = document.createElement("td");
@@ -602,7 +602,9 @@
         try {
           await api({ action, certificate: { id: c.id } });
           $("message").textContent =
-            action === "issue" ? "申请任务已启动，请刷新查看状态。" : "已删除";
+            action === "issue"
+              ? "申请任务已启动，把鼠标放到状态格上可看当前进度。"
+              : "已删除";
           await load();
         } catch (e) {
           $("message").textContent = e.message;
@@ -705,9 +707,17 @@
         }
       });
       load().catch((e) => ($("message").textContent = e.message));
-      setInterval(() => {
-        if ($("editor").hidden && !busy) load().catch(() => {});
-      }, 10000);
+      // 轮询：空闲 10s；有申请任务在跑时缩到 3s，悬浮的进度提示才跟得上
+      (function poll() {
+        setTimeout(() => {
+          const running = (items || []).some((c) => c.running);
+          if ($("editor").hidden && !busy)
+            load()
+              .then(poll)
+              .catch(poll);
+          else poll();
+        }, (items || []).some((c) => c.running) ? 3000 : 10000);
+      })();
     </script>
   </body>
 </html>
