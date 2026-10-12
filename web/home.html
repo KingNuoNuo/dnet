@@ -88,10 +88,6 @@
             <a class="dnet-nav-item" data-route="webhook">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 13.5a5 5 0 0 0 7.1 0l2.4-2.4a5 5 0 0 0-7.1-7.1l-1.4 1.4"/><path d="M13.5 10.5a5 5 0 0 0-7.1 0l-2.4 2.4a5 5 0 0 0 7.1 7.1l1.4-1.4"/></svg>Webhook
             </a>
-            <a class="dnet-nav-item" id="logs">
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>系统日志
-                <span class="dnet-badge"></span>
-            </a>
         </nav>
 
         <div class="dnet-side-foot">
@@ -217,111 +213,6 @@
 
         $('.dnet-shade').on('click', closeDrawer);
 
-        /* ---------------- 日志轮询 ---------------- */
-        var logPollingTimer = null;
-        var currentLogLayerIndex = null;
-        var lastLogCount = 0;
-        var lastLogTimestamp = null;
-        var hasCheckedInitialLogs = false;
-
-        function formatLogLevel(level) {
-            var levelMap = {info: '信息', warn: '警告', error: '错误'};
-            return levelMap[level] || level;
-        }
-
-        function formatLogType(type) {
-            var typeMap = {system: '系统', dcdn: 'DCDN', ddns: 'DDNS'};
-            return typeMap[type] || type;
-        }
-
-        function showNewLogs(newLogs) {
-            if (newLogs.length === 0) return;
-            var logsToShow = newLogs.slice(-5);
-            var delay = 0;
-            logsToShow.forEach(function (log) {
-                setTimeout(function () {
-                    var logTitle = '[' + formatLogType(log.type) + '] ' + formatLogLevel(log.level);
-                    var logContent = log.message;
-                    if (logContent.length > 100) {
-                        logContent = logContent.substring(0, 100) + '...';
-                    }
-                    var skin = 'layui-layer-right-top';
-                    if (log.level === 'error' || log.level === 'ERROR') {
-                        skin = 'layui-layer-right-top-error';
-                    }
-                    layer.msg(logTitle + ': ' + logContent, {
-                        time: 2000,
-                        anim: 'slideDown',
-                        offset: 'rt',
-                        skin: skin
-                    });
-                }, delay);
-                delay += 800;
-            });
-        }
-
-        function pollLogs() {
-            fetch('/logs/count', {
-                method: 'GET',
-                headers: {'Content-Type': 'application/json'}
-            })
-                .then(function (response) {
-                    return response.json();
-                })
-                .then(function (data) {
-                    if (!data.status || !data.data || typeof data.data.count === 'undefined') return;
-
-                    var currentCount = data.data.count;
-                    var latestLogs = data.data.latest || [];
-
-                    if (!hasCheckedInitialLogs) {
-                        lastLogCount = currentCount;
-                        if (latestLogs.length > 0) {
-                            lastLogTimestamp = latestLogs[latestLogs.length - 1].timestamp;
-                        }
-                        hasCheckedInitialLogs = true;
-                        return;
-                    }
-
-                    if (currentCount > lastLogCount) {
-                        $('#logs .dnet-badge').show();
-
-                        var newLogs = [];
-                        if (lastLogTimestamp) {
-                            for (var i = 0; i < latestLogs.length; i++) {
-                                if (latestLogs[i].timestamp > lastLogTimestamp) {
-                                    newLogs.push(latestLogs[i]);
-                                }
-                            }
-                        } else {
-                            newLogs = latestLogs.slice(-(currentCount - lastLogCount));
-                        }
-
-                        if (newLogs.length > 0) {
-                            showNewLogs(newLogs);
-                            lastLogTimestamp = latestLogs[latestLogs.length - 1].timestamp;
-                        }
-
-                        // 日志弹窗已打开时自动刷新
-                        if (currentLogLayerIndex !== null) {
-                            var layero = $('#layui-layer' + currentLogLayerIndex);
-                            if (layero.length > 0) {
-                                var frame = layero.find('iframe')[0];
-                                if (frame) frame.contentWindow.location.reload();
-                            }
-                        }
-
-                        lastLogCount = currentCount;
-                    }
-                })
-                .catch(function (error) {
-                    console.error('日志轮询失败:', error);
-                });
-        }
-
-        pollLogs();
-        logPollingTimer = setInterval(pollLogs, 5000);
-
         /* ---------------- 顶栏状态轮询 ---------------- */
         // /api/overview 汇总各模块的启用与运行状态。
         // 页内保存配置走 AJAX，iframe 不会重新 load，所以靠定时轮询兜底；
@@ -397,68 +288,6 @@
 
         pollOverview();
         overviewTimer = setInterval(pollOverview, OVERVIEW_POLL_MS);
-
-        /* ---------------- 系统日志弹窗 ---------------- */
-        $('#logs').on('click', function () {
-            closeDrawer();
-            $('#logs .dnet-badge').hide();
-
-            currentLogLayerIndex = layer.open({
-                type: 2,
-                title: '系统日志（最近 100 条）',
-                area: (function () {
-                    if (window.innerWidth <= 768) return ['90%', '60%'];
-                    if (window.innerWidth <= 1024) return ['60%', '50%'];
-                    return ['80%', '65%'];
-                })(),
-                maxWidth: 800,
-                maxHeight: 500,
-                shadeClose: true,
-                resize: false,
-                move: '.layui-layer-title',
-                content: '/logs',
-                btn: ['清空日志', '关闭'],
-                btn1: function (index, layero) {
-                    layer.confirm('确定要清空所有日志吗？此操作不可恢复！', {
-                        icon: 3,
-                        title: '警告',
-                        btn: ['确定', '取消']
-                    }, function (confirmIndex) {
-                        var loadIndex = layer.load(1, {shade: [0.3, '#000']});
-                        fetch('/logs', {method: 'DELETE'})
-                            .then(function (response) {
-                                return response.json();
-                            })
-                            .then(function (data) {
-                                layer.close(loadIndex);
-                                if (data.status === true) {
-                                    layer.msg(data.msg || '日志已清空', {icon: 1, time: 1500});
-                                    lastLogCount = 0;
-                                    lastLogTimestamp = null;
-                                    var frame = layero.find('iframe')[0];
-                                    if (frame) frame.contentWindow.location.reload();
-                                } else {
-                                    layer.msg('清空失败: ' + (data.msg || '未知错误'), {icon: 2});
-                                }
-                                layer.close(confirmIndex);
-                            })
-                            .catch(function (error) {
-                                layer.close(loadIndex);
-                                layer.msg('清空失败: ' + error.message, {icon: 2});
-                                layer.close(confirmIndex);
-                            });
-                    });
-                    return false;
-                },
-                btn2: function (index) {
-                    layer.close(index);
-                },
-                end: function () {
-                    currentLogLayerIndex = null;
-                }
-            });
-        });
-
     });
 </script>
 </html>
