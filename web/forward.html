@@ -100,12 +100,12 @@
                 />
               </div>
               <div class="layui-form-mid layui-word-aux">
-                仅 OpenWrt 生效（fw3 / fw4
-                自适应检测）。开启后自动把「已启用且监听在
-                0.0.0.0/::」规则的端口加入 WAN
-                放行，停用或删除规则时自动撤掉；dnet 只动自己加的 dnet-
-                前缀规则。绑定具体内网 IP 的规则不放行。非 OpenWrt
-                系统开了也没作用。
+                自动检测防火墙后端：OpenWrt fw4 / fw3（重启后仍生效）；通用 Linux
+                nftables / iptables（运行时放行，重启后需重新保存端口转发配置触发补挂，
+                或自行持久化防火墙规则）。开启后自动把「已启用且监听在
+                0.0.0.0/::」规则的端口加入 WAN 放行，停用或删除规则时自动撤掉；
+                dnet 只动自己加的 dnet- 前缀规则。绑定具体内网 IP
+                的规则不放行。全部后端都不存在时开启无作用。
               </div>
             </div>
 
@@ -132,6 +132,7 @@
                   <span>目标端口</span>
                   <span>连通性</span>
                   <span>流量</span>
+                  <span>连接</span>
                   <span>备注</span>
                   <span></span>
                 </div>
@@ -417,6 +418,7 @@
               <input data-key="target_port" type="number" min="1" max="65535" inputmode="numeric" aria-label="目标端口" placeholder="80" value="${esc(num(rule.target_port))}">
               <span class="dnet-conn-cell">${connCell(rule.id)}</span>
               <span class="dnet-traffic-cell" aria-label="流量统计">${trafficCell(rule.id)}</span>
+              <span class="dnet-live-cell" aria-label="活跃连接数">${liveCell(rule.id)}</span>
               <input data-key="name" aria-label="备注" placeholder="NAS 面板" value="${esc(rule.name)}">
               <button type="button" class="dnet-rule-del" aria-label="删除该行" title="删除该行">${ICON_CROSS}</button>
             </div>
@@ -492,7 +494,19 @@
           for (const el of root.children) {
             const cell = el.querySelector(".dnet-traffic-cell");
             if (cell) cell.innerHTML = trafficCell(el.dataset.id);
+            const live = el.querySelector(".dnet-live-cell");
+            if (live) live.innerHTML = liveCell(el.dataset.id);
           }
+        }
+        function liveCell(id) {
+          const s = statusOf(id);
+          if (!s) return '<span class="dnet-live dim">—</span>';
+          const n = s.connections || 0;
+          return (
+            '<span class="dnet-live' + (n ? "" : " dim") + '" title="当前活跃 TCP 连接 / UDP 会话数">' +
+            `<b>${n}</b> ${n ? "个" : ""}` +
+            "</span>"
+          );
         }
         function syncNetLabel(id) {
           const rule = rules.find((r) => r.id === id);

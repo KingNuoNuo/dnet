@@ -1238,14 +1238,14 @@ tip a,
 
 /* ---- 规则表格 ---- */
 .dnet-rules {
-    --rule-cols: 28px 130px 112px minmax(150px, 1.3fr) 112px 128px 150px minmax(120px, 1fr) 40px;
+    --rule-cols: 28px 130px 112px minmax(150px, 1.3fr) 112px 128px 150px 88px minmax(120px, 1fr) 40px;
 }
 
 /* 端口转发专用：地址/备注封顶不再无限拉伸，整张表限宽靠左 —— 超宽屏上
-   是一张正常的紧凑表，而不是一排被吹长的输入框。其它页（fr 列）不受影响 */
+   是一张正常的紧凑表，而不是一排被吹长的输入框。ddns/dcdn/dws 同样处理 */
 .dnet-rules.rules-dpf {
-    --rule-cols: 28px 130px 112px minmax(150px, 520px) 112px 128px 150px minmax(120px, 340px) 40px;
-    max-width: 1624px; /* 各列上限之和 + 8 个 8px 列距，限宽让行底色跟着收 */
+    --rule-cols: 28px 130px 112px minmax(150px, 520px) 112px 128px 150px 88px minmax(80px, 170px) 40px;
+    max-width: 1550px; /* 各列上限之和 1478 + 9 个 8px 列距，限宽让行底色跟着收 */
 }
 
 .dnet-rules-head,
@@ -1406,6 +1406,29 @@ tip a,
 .dnet-traffic b {
     font-weight: 500;
     color: var(--text);
+}
+
+/* 每条规则的活跃连接数（DPF 行列表新增列）：样式对齐 .dnet-traffic，
+   0 条时加 .dim 淡显，有连接时正常色 */
+.dnet-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.dnet-live b {
+    font-weight: 500;
+    color: var(--text);
+}
+
+.dnet-live.dim b,
+.dnet-traffic.dim {
+    color: inherit;
 }
 
 .dnet-conn > svg {
@@ -2115,13 +2138,14 @@ tip a,
     }
 
     .dnet-rules {
-        --rule-cols: 26px 118px 100px minmax(140px, 1.3fr) 100px 116px 130px minmax(110px, 1fr) 36px;
-        min-width: 1000px;
+        --rule-cols: 26px 118px 100px minmax(140px, 1.3fr) 100px 116px 130px 80px minmax(110px, 1fr) 36px;
+        min-width: 1080px;
+        max-width: none;
     }
 
     .dnet-rules.rules-dpf {
-        --rule-cols: 26px 118px 100px minmax(140px, 1.3fr) 100px 116px 130px minmax(110px, 1fr) 36px;
-        min-width: 1000px;
+        --rule-cols: 26px 118px 100px minmax(140px, 1.3fr) 100px 116px 130px 80px minmax(110px, 1fr) 36px;
+        min-width: 1080px;
         max-width: none;
     }
 }
@@ -3291,15 +3315,18 @@ select:focus-visible,
    每一行的格子数与下面的 --rule-cols 段数必须一致，多一个少一个都会让末尾的
    删除按钮跑到第二行去 —— 改列的时候两边一起改。 */
 .dnet-rules.rules-dws {
-    --rule-cols: 28px 128px minmax(160px, 1.35fr) 108px minmax(160px, 1.35fr) 116px minmax(120px, 1fr) 40px;
+    --rule-cols: 28px 128px minmax(160px, 420px) 108px minmax(160px, 420px) 116px minmax(80px, 150px) 40px;
+    max-width: 1466px; /* 各列上限之和 1410 + 7 个 8px 列距，限宽靠左（同 rules-dpf） */
 }
 
 .dnet-rules.rules-ddns {
-    --rule-cols: 28px minmax(170px, 1.5fr) 138px 116px 92px 148px minmax(120px, 1fr) 40px;
+    --rule-cols: 28px minmax(170px, 520px) 138px 116px 92px 148px minmax(80px, 170px) 40px;
+    max-width: 1308px; /* 1252 + 56 */
 }
 
 .dnet-rules.rules-dcdn {
-    --rule-cols: 28px minmax(170px, 1.5fr) 138px 116px 84px minmax(120px, 1fr) 40px;
+    --rule-cols: 28px minmax(170px, 520px) 138px 116px 84px minmax(80px, 170px) 40px;
+    max-width: 1144px; /* 1096 + 48 */
 }
 
 /* 系统设置 → DNS 服务商：字段数随服务商变（Cloudflare 只有 Token、NameSilo
@@ -3690,11 +3717,13 @@ select:focus-visible,
     .dnet-rules.rules-dws {
         --rule-cols: 26px 116px minmax(150px, 1.3fr) 96px minmax(150px, 1.3fr) 104px minmax(110px, 1fr) 36px;
         min-width: 940px;
+        max-width: none;
     }
 
     .dnet-rules.rules-ddns {
         --rule-cols: 26px minmax(160px, 1.4fr) 128px 106px 84px 126px minmax(110px, 1fr) 36px;
         min-width: 900px;
+        max-width: none;
     }
 
     /* dcdn 的源站子表有 9 列，最小需要约 844px。主表的 860px 扣掉展开面板的
@@ -3703,6 +3732,7 @@ select:focus-visible,
     .dnet-rules.rules-dcdn {
         --rule-cols: 26px minmax(160px, 1.4fr) 128px 100px 84px minmax(110px, 1fr) 36px;
         min-width: 960px;
+        max-width: none;
     }
 
     .dnet-rules.rules-dnsc {

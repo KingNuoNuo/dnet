@@ -526,10 +526,11 @@
         }
         return worst;
       }
-      // meta 只放「一眼要看的」：单条记录直接给实际解析值，多条给条数。
-      // 完整明细（每条记录期望 vs 实际）放 tooltip。
+      // meta 只放「一眼要看的」短标签，不再直接显示解析出的 IP ——
+      // IP 会把状态列顶得很宽，而且对「状态是否正常」这个诉求没用。
+      // 完整明细（每条记录期望 vs 实际，IP 就在这里）放 tooltip。
       function probeMeta(state, records, values) {
-        if (values.length === 1 && records.length === 1) return values[0];
+        if (records.length === 1 && records[0].type) return records[0].type + " 记录";
         if (records.length) return records.length + " 条记录";
         return state === "missing" ? "无记录" : "";
       }
