@@ -225,6 +225,8 @@ func run() {
 		if err := forwardManager.Apply(conf.ActiveForwardRules(), nil); err != nil {
 			helper.Error(helper.LogTypeSystem, "启动端口转发失败: %v", err)
 		}
+		// 自动放行对账放最后：只增删 dnet- 前缀的 uci 规则，失败不影响转发
+		forward.SyncFirewall(conf.ForwardAutoFirewall, conf.ActiveForwardRules())
 	}
 	if !*noWebService {
 		go func() {

@@ -68,8 +68,11 @@ type Config struct {
 	Webhook
 	DCDNConfig
 	DDNSConfig
-	ForwardEnabled bool           `json:"forward_enabled" yaml:"forward_enabled"`
-	ForwardRules   []forward.Rule `json:"forward_rules" yaml:"forward_rules,omitempty"`
+	ForwardEnabled bool `json:"forward_enabled" yaml:"forward_enabled"`
+	// ForwardAutoFirewall 开启后，dnet 会把「已启用且监听在通配地址」的规则
+	// 端口通过 uci 自动加进 OpenWrt 防火墙放行（fw3/fw4 自适应），关闭/删规则时撤掉。
+	ForwardAutoFirewall bool           `json:"forward_auto_firewall" yaml:"forward_auto_firewall,omitempty"`
+	ForwardRules        []forward.Rule `json:"forward_rules" yaml:"forward_rules,omitempty"`
 	// 语言
 	Lang string
 }
