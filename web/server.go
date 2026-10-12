@@ -17,9 +17,10 @@ type SyncService interface {
 }
 
 type Server struct {
-	certificateIssuer  func(context.Context, certificates.Certificate) (certificates.Certificate, error)
-	certificateJobs    map[string]bool
-	certificateContext context.Context
+	certificateIssuer   func(context.Context, certificates.Certificate) (certificates.Certificate, error)
+	certificateJobs     map[string]bool
+	certificateProgress map[string]string // 证书 id -> 当前申请步骤（悬浮展示）
+	certificateContext  context.Context
 	WebServices        *webservice.Manager
 	webServiceMu       sync.Mutex
 	Forwarder          *forward.Manager
