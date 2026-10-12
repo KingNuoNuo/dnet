@@ -1238,7 +1238,9 @@ tip a,
 
 /* ---- 规则表格 ---- */
 .dnet-rules {
-    --rule-cols: 28px 130px 112px minmax(150px, 1.3fr) 112px 128px 150px minmax(120px, 1fr) 40px;
+    /* 地址/备注用 px 上限而不是 fr：超宽屏上输入框拉到 500px+ 只剩空洞感，
+       中间两列像被吹气球。封顶后多出来的宽度交给下面的居中对齐处理 */
+    --rule-cols: 28px 130px 112px minmax(150px, 520px) 112px 128px 150px minmax(120px, 340px) 40px;
 }
 
 .dnet-rules-head,
@@ -1247,6 +1249,16 @@ tip a,
     grid-template-columns: var(--rule-cols);
     gap: 8px;
     align-items: center;
+}
+
+/* 超宽屏：列宽封顶后整组居中，变成一块对称面板。
+   只在确实放得下时生效（窄屏总宽超出容器，居中会导致两侧裁切）；
+   第 18 节那些用 fr 的页面列会吃满容器，这条对它们是 no-op */
+@media (min-width: 1680px) {
+    .dnet-rules-head,
+    .dnet-rule-main {
+        justify-content: center;
+    }
 }
 
 .dnet-rules-head {
