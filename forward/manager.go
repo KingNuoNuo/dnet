@@ -288,7 +288,10 @@ func (e *entry) fail(err error) {
 	}
 	e.mu.Unlock()
 	if emit {
-		helper.RuleLog(helper.LogLevelERROR, id, "[%s] 转发运行错误: %v", name, err)
+		// broken pipe / connection reset by peer 是对端先断开后的正常噪音
+		// （客户端关页面、后端关空闲连接、网络切换），降级成 DEBUG，
+		// 别在日志页的 ERROR 面板里刷屏；lastError 仍然记录，行内探测悬停可见。
+		helper.RuleLog(helper.LogLevelDEBUG, id, "[%s] 转发运行错误: %v", name, err)
 	}
 }
 func allowed(addr net.Addr, r Rule) bool {
