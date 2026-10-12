@@ -84,7 +84,6 @@ dnet/
 ├── bootstrap/           # 应用启动器
 ├── static/              # 静态资源文件
 ├── .goreleaser.yaml     # GoReleaser 配置
-├── Dockerfile           # Docker 镜像构建文件
 ├── go.mod               # Go 模块定义
 └── go.sum               # 依赖版本锁定
 ```
@@ -192,7 +191,6 @@ dnet/
 - `config`: 配置相关
 - `dcdn`: DCDN 功能
 - `web`: Web 界面
-- `docker`: Docker 相关
 
 **示例：**
 
@@ -261,7 +259,7 @@ func TestConfigLoad(t *testing.T) {
 
 ## 发布流程
 
-自动化检查、发布门禁和本地 Docker 冒烟测试说明见 [GitHub 自动化流程](.github/WORKFLOWS.md)。
+自动化检查与发布流程说明见 [GitHub 自动化流程](.github/WORKFLOWS.md)。
 
 项目维护者会定期发布新版本：
 

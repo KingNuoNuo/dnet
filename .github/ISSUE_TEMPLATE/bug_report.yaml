@@ -23,7 +23,7 @@ body:
     attributes:
       label: 运行环境
       description: 填写系统或设备，以及运行方式；不清楚的部分可以省略。
-      placeholder: 如 Ubuntu + Docker / 飞牛 NAS + Docker / Windows + 直接运行
+      placeholder: 如 Ubuntu / 飞牛 NAS / Windows + 直接运行
     validations:
       required: true
 

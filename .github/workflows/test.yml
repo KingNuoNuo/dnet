@@ -22,9 +22,6 @@ jobs:
   security:
     uses: ./.github/workflows/security.yml
 
-  docker:
-    uses: ./.github/workflows/docker-test.yml
-
   native:
     name: Native checks (${{ matrix.os }})
     strategy:
