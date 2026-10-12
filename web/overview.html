@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <title>状态总览</title>
+    <link rel="stylesheet" href="/static/css/layui.css">
+    <link rel="stylesheet" href="/static/css/common.css">
+    <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+    <script src="/static/layui.js"></script>
+    <style>
+        body {
+            background-color: #f2f2f2;
+            margin: 0;
+            padding: 0 0 25px 0;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+        html {
+            overflow-x: hidden;
+        }
+    </style>
+</head>
+<body>
+<div class="layui-container">
+    <p class="page-desc">所有服务的启用状态与当前配置一屏看完，下方常驻显示最近的系统日志。</p>
+
+    <!-- 卡片由 /api/overview 的返回结果渲染，初始占位避免布局跳动 -->
+    <div class="dnet-svc-grid" id="svc-grid">
+        <div class="dnet-svc-placeholder">正在读取服务状态…</div>
+    </div>
+
+    <!-- 系统日志：与左侧导航的日志弹窗同源（/logs/count），这里内嵌常驻 -->
+    <section class="dnet-logs" id="log-box">
+        <div class="dnet-logs-head">
+            <b>系统日志</b>
+            <span class="dnet-logs-count" id="log-count">读取中…</span>
+            <div class="dnet-logs-acts">
+                <label class="dnet-logs-auto" title="每 5 秒拉取一次最新日志">
+                    <input type="checkbox" id="log-auto" checked>自动刷新
+                </label>
+                <button type="button" class="dnet-logs-btn" id="log-refresh">刷新</button>
+                <button type="button" class="dnet-logs-btn danger" id="log-clear">清空</button>
+            </div>
+        </div>
+        <div class="dnet-log-list" id="log-list">
+            <div class="dnet-log-hint">正在读取日志…</div>
+        </div>
+    </section>
+</div>
+</body>
+<script src="/static/common.js"></script>
+<script>
+    (function () {
+        "use strict";
+
+        function esc(value) {
+            return String(value === undefined || value === null ? "" : value).replace(/[&<>"']/g, function (ch) {
+                return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[ch];
+            });
+        }
+
+        /* ==================== 服务卡片 ==================== */
+        /* 卡片上不来自后端的部分：短名、一句话说明、跳转路径。
+           后端只负责「状态」这一件事，避免同一份文案维护两处。 */
+        var META = {
+            dcdn: {short: "DCDN", desc: "根据本机公网 IP 自动更新 CDN 源站地址", path: "/dcdn"},
+            ddns: {short: "DDNS", desc: "把变化的公网 IP 实时同步到域名解析记录", path: "/ddns"},
+            dpf: {short: "DPF", desc: "公网入站端口映射到内网服务", path: "/forward"},
+            dws: {short: "DWS", desc: "HTTP / HTTPS 反向代理与访问认证", path: "/webservice"},
+            dssl: {short: "DSSL", desc: "ACME 自动申请证书与到期续期", path: "/certificates"}
+        };
+
+        /* .st-* 决定徽标配色，与顶栏 .dnet-dot 用的是同一套语义色 */
+        var STATE_CLASS = {on: "st-on", warn: "st-warn", err: "st-err", off: "st-off"};
+
+        /* meta 形如「2 个域名」「3 条规则 · 1 条未监听」。
+           把开头的数字包一层 <b class="num">，卡片底部那行就有了一个 15px 的
+           主读数，而不是一整行同号的灰字 —— 仪表盘上最容易读的就是数字。
+           先 esc 再插标签：插入的是我们自己的标记，不含任何接口来的字符。 */
+        function readout(meta) {
+            return esc(meta || "暂无配置").replace(/^(\d+)/, '<b class="num">$1</b>');
+        }
+
+        var grid = document.getElementById("svc-grid");
+
+        function card(service) {
+            var meta = META[service.id] || {short: service.name, desc: "", path: "/"};
+            var stateClass = STATE_CLASS[service.state] || STATE_CLASS.off;
+
+            var link = document.createElement("a");
+            link.className = "dnet-svc " + stateClass;
+            link.href = meta.path;
+            link.title = "进入" + meta.short;
+            link.innerHTML =
+                '<div class="h">' +
+                "<b>" + esc(meta.short) + "</b>" +
+                '<span class="tag">' + esc(service.name) + "</span>" +
+                '<span class="st">' + esc(service.text) + "</span>" +
+                "</div>" +
+                '<div class="d">' + esc(meta.desc) + "</div>" +
+                '<div class="f">' +
+                '<span class="m">' + readout(service.meta) + "</span>" +
+                '<span class="go">进入</span>' +
+                "</div>";
+            return link;
+        }
+
+        function renderCards(services) {
+            grid.innerHTML = "";
+            if (!services.length) {
+                grid.innerHTML = '<div class="dnet-svc-placeholder">暂无可展示的服务</div>';
+                return;
+            }
+            services.forEach(function (service) {
+                grid.appendChild(card(service));
+            });
+        }
+
+        fetch("/api/overview", {credentials: "same-origin"})
+            .then(function (response) {
+                return response.json();
+            })
+            .then(function (result) {
+                if (!result || !result.status) {
+                    throw new Error((result && result.msg) || "读取服务状态失败");
+                }
+                renderCards((result.data && result.data.services) || []);
+            })
+            .catch(function (err) {
+                grid.innerHTML = '<div class="dnet-svc-placeholder err">' +
+                    esc(err && err.message ? err.message : "读取服务状态失败") + "</div>";
+            });
+
+        /* ==================== 系统日志 ==================== */
+        var LOG_LIMIT = 50;      // 一次拉多少条（后端日志缓冲容量为上限）
+        var LOG_POLL_MS = 5000;  // 自动刷新间隔
+
+        var logList = document.getElementById("log-list");
+        var logCount = document.getElementById("log-count");
+        var logAuto = document.getElementById("log-auto");
+        var logClear = document.getElementById("log-clear");
+
+        var logTimer = null;
+        var logSignature = null; // 内容指纹：没变化就不重绘，免得每 5 秒闪一下
+        var logBusy = false;
+        var logPending = false;  // 拉取途中又点了刷新/清空，记下来等这次回来再补一发
+
+        /* 级别 → 配色类。取值来自后端常量，这里仍白名单化一次，
+           避免将来出现意外的 level 直接变成任意 class */
+        function levelClass(level) {
+            var key = String(level || "").toLowerCase();
+            return /^(debug|info|warn|error|fatal)$/.test(key) ? "lv-" + key : "lv-debug";
+        }
+
+        function logRow(entry) {
+            return '<div class="dnet-log-row">' +
+                '<span class="t">' + esc(entry.timestamp) + "</span>" +
+                '<span class="lv ' + levelClass(entry.level) + '">' + esc(entry.level) + "</span>" +
+                '<span class="ty">' + esc(entry.type) + "</span>" +
+                '<span class="ms">' + esc(entry.message) + "</span>" +
+                "</div>";
+        }
+
+        function paintLogs(entries) {
+            if (!entries.length) {
+                logList.innerHTML = '<div class="dnet-log-hint">暂无日志</div>';
+                return;
+            }
+            // 最新的一条排最上面：这个框是用来看「刚刚发生了什么」的，
+            // 倒序展示就不必每次滚动，也不会因为插入新行把视线顶走
+            var rows = "";
+            for (var i = entries.length - 1; i >= 0; i--) {
+                rows += logRow(entries[i]);
+            }
+            logList.innerHTML = rows;
+        }
+
+        function logFingerprint(count, entries) {
+            if (!entries.length) {
+                return count + "|empty";
+            }
+            var first = entries[0] || {};
+            var last = entries[entries.length - 1] || {};
+            return count + "|" + entries.length + "|" + (first.timestamp || "") + "|" + (last.timestamp || "");
+        }
+
+        function loadLogs(force) {
+            if (logBusy) {
+                logPending = logPending || !!force;
+                return;
+            }
+            logBusy = true;
+
+            fetch("/logs/count?n=" + LOG_LIMIT, {credentials: "same-origin"})
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (result) {
+                    if (!result || !result.status) {
+                        throw new Error((result && result.msg) || "读取日志失败");
+                    }
+                    var data = result.data || {};
+                    var entries = data.latest || [];
+                    var total = data.count || 0;
+
+                    logCount.textContent = "共 " + total + " 条";
+
+                    var signature = logFingerprint(total, entries);
+                    if (force || signature !== logSignature) {
+                        paintLogs(entries);
+                        logSignature = signature;
+                    }
+                })
+                .catch(function (err) {
+                    logCount.textContent = "读取失败";
+                    logList.innerHTML = '<div class="dnet-log-hint err">' +
+                        esc(err && err.message ? err.message : "读取日志失败") + "</div>";
+                    logSignature = null;
+                })
+                .then(function () {
+                    logBusy = false;
+                    if (logPending) {
+                        logPending = false;
+                        loadLogs(true);
+                    }
+                });
+        }
+
+        function stopPoll() {
+            if (logTimer !== null) {
+                clearInterval(logTimer);
+                logTimer = null;
+            }
+        }
+
+        function startPoll() {
+            stopPoll();
+            if (logAuto.checked) {
+                logTimer = setInterval(function () {
+                    loadLogs(false);
+                }, LOG_POLL_MS);
+            }
+        }
+
+        logAuto.addEventListener("change", function () {
+            startPoll();
+            if (logAuto.checked) {
+                loadLogs(false);
+            }
+        });
+
+        document.getElementById("log-refresh").addEventListener("click", function () {
+            loadLogs(true);
+        });
+
+        logClear.addEventListener("click", function () {
+            var button = this;
+            if (!window.confirm("确定要清空所有日志吗？此操作不可恢复！")) {
+                return;
+            }
+            button.disabled = true;
+            fetch("/logs", {method: "DELETE", credentials: "same-origin"})
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (result) {
+                    if (!result || !result.status) {
+                        throw new Error((result && result.msg) || "清空日志失败");
+                    }
+                    logSignature = null;
+                    loadLogs(true);
+                })
+                .catch(function (err) {
+                    logCount.textContent = "清空失败";
+                    logList.innerHTML = '<div class="dnet-log-hint err">' +
+                        esc(err && err.message ? err.message : "清空日志失败") + "</div>";
+                })
+                .then(function () {
+                    button.disabled = false;
+                });
+        });
+
+        /* 总览常驻在外壳的 iframe 里，切到别的页面就没必要继续轮询 */
+        document.addEventListener("visibilitychange", function () {
+            if (document.hidden) {
+                stopPoll();
+                return;
+            }
+            startPoll();
+            loadLogs(false);
+        });
+
+        loadLogs(false);
+        startPoll();
+    }());
+</script>
+</html>
