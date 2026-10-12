@@ -7,11 +7,11 @@
     <link rel="stylesheet" href="/static/css/common.css">
     <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
     <script src="/static/layui.js"></script>
+    <script src="/static/common.js"></script>
 </head>
 <style>
     .layui-fluid {
         padding: 15px;
-        background: #fff;
     }
     .webhook-var {
         display: inline-block;
@@ -26,32 +26,36 @@
         user-select: none;
         transition: background .15s;
     }
-    .webhook-tip {
-        display: inline-block;
-        margin-top: 10px;
-        line-height: 10px;
-        font-size: 10px;
-        color: #a29c9c;
-    }
     .webhook-var:hover { background: #e0eaf5; border-color: #4a90d9; color: #2c6fb7; }
     .webhook-var.inserted { background: #d4edda; border-color: #5cb85c; }
+    /* 说明文字统一走公共 tip 样式（12px），不再单独定义一套 10px 的 */
+    .webhook-var-list {
+        line-height: 2;
+    }
 </style>
 <body>
-<div class="layui-fluid">
+<div class="layui-fluid" data-tabs>
+    <div class="dnet-tabs" role="tablist">
+        <button type="button" data-tab="basic" class="on">基础配置</button>
+        <button type="button" data-tab="vars">可用变量</button>
+    </div>
     <div class="layui-row">
-        <form class="layui-form">
+        <form class="layui-form" onsubmit="return false">
+        <div class="dnet-panel on" data-panel="basic">
             <div class="layui-form-item">
                 <label for="webhook_enable" class="layui-form-label">启用状态</label>
                 <div class="layui-input-block">
                     <input type="checkbox" id="webhook_enable" name="webhook_enable" lay-skin="switch"
                            lay-text="开启|关闭" {{if .WebhookEnabled}}checked{{end}}>
                 </div>
-                <tip class="webhook-tip">关闭后 Webhook 所有配置失效，使用可参考 <a style="color: #1e9fff" href="https://github.com/cxbdasheng/dnet/wiki/WebHook-%E9%85%8D%E7%BD%AE%E6%8C%87%E5%8D%97" target="_blank">WebHook 配置指南</a>。</tip>
+                <tip>关闭后 Webhook 所有配置失效，使用可参考 <a style="color: #1e9fff" href="https://github.com/cxbdasheng/dnet/wiki/WebHook-%E9%85%8D%E7%BD%AE%E6%8C%87%E5%8D%97" target="_blank">WebHook 配置指南</a>。</tip>
             </div>
             <div class="layui-form-item">
                 <label for="url" class="layui-form-label">URL</label>
                 <div class="layui-input-block">
-                    <input type="text" id="url" name="url"  lay-verify="required"
+                    <!-- 不用 lay-verify="required"：URL 只在启用时才必填，
+                         交给下面的 validate 判断，否则关闭 Webhook 时会被卡住 -->
+                    <input type="text" id="url" name="url"
                            autocomplete="on" class="layui-input" value="{{.WebhookURL}}">
                 </div>
             </div>
@@ -60,7 +64,7 @@
                 <label for="headers" class="layui-form-label">请求头</label>
                 <div class="layui-input-block">
                     <textarea type="text" id="headers" name="headers"
-                              autocomplete="off" class="layui-textarea" style="min-height: 60px;">{{.WebhookHeaders}}</textarea>
+                              autocomplete="off" class="layui-textarea">{{.WebhookHeaders}}</textarea>
                     <tip> 一行一个Header, 如: Authorization: Bearer API_KEY</tip>
                 </div>
             </div>
@@ -71,9 +75,11 @@
                     <tip>如果请求体为空, 则为 GET 请求, 否则为 POST 请求</tip>
                 </div>
             </div>
+        </div>
+        <div class="dnet-panel" data-panel="vars">
             <div class="layui-form-item">
                 <label class="layui-form-label">可用变量</label>
-                <div class="layui-input-block" style="line-height:2">
+                <div class="layui-input-block webhook-var-list">
                     <span class="webhook-var" data-var="#{serviceType}">#{serviceType}</span>
                     <span class="webhook-var" data-var="#{serviceName}">#{serviceName}</span>
                     <span class="webhook-var" data-var="#{serviceStatus}">#{serviceStatus}</span>
@@ -84,34 +90,157 @@
                     <tip style="display:block;margin-top:4px">点击变量可插入到 URL 或请求体的光标位置</tip>
                 </div>
             </div>
+        </div>
+
+        <div class="layui-row layui-form-item">
+            <div class="layui-input-block">
+                <button type="submit" class="layui-btn" lay-submit lay-filter="save">保存配置</button
+                ><button type="button" class="layui-btn layui-btn-primary" id="webhook-test">模拟测试</button
+                ><button type="button" class="layui-btn layui-btn-primary reset">重置</button>
+            </div>
+        </div>
         </form>
     </div>
 </div>
 <script>
 (function () {
-    var insertableFields = ['url', 'request_body'];
-    var lastFocused = document.getElementById('url');
+    layui.use(['form', 'layer'], function () {
+        var form = layui.form;
+        var layer = layui.layer;
+        var $ = layui.$;
+        var unsavedChanges = createUnsavedChangesGuard($);
 
-    insertableFields.forEach(function (id) {
-        var el = document.getElementById(id);
-        if (el) el.addEventListener('focus', function () { lastFocused = el; });
-    });
+        function el(id) {
+            return document.getElementById(id);
+        }
 
-    document.querySelectorAll('.webhook-var').forEach(function (chip) {
-        chip.addEventListener('click', function () {
-            var text = chip.getAttribute('data-var');
-            var el = lastFocused;
-            if (!el) return;
-            el.focus();
-            var start = el.selectionStart, end = el.selectionEnd;
-            el.value = el.value.slice(0, start) + text + el.value.slice(end);
-            el.selectionStart = el.selectionEnd = start + text.length;
+        /* 字段名与后端 config.Webhook 的 json tag 对齐 */
+        function read() {
+            return {
+                webhook_enabled: el('webhook_enable').checked,
+                webhook_url: el('url').value,
+                webhook_headers: el('headers').value,
+                webhook_request_body: el('request_body').value
+            };
+        }
 
-            chip.classList.add('inserted');
-            setTimeout(function () { chip.classList.remove('inserted'); }, 600);
+        function write(data) {
+            el('webhook_enable').checked = !!data.webhook_enabled;
+            el('url').value = data.webhook_url;
+            el('headers').value = data.webhook_headers;
+            el('request_body').value = data.webhook_request_body;
+            form.render('checkbox');
+        }
+
+        var snapshot = read();
+
+        function post(url, data) {
+            return fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            }).then(function (response) {
+                return response.json().catch(function () {
+                    throw new Error('服务器响应解析失败');
+                });
+            }).then(function (result) {
+                if (!result || !result.status) {
+                    throw new Error((result && result.msg) || '请求失败');
+                }
+                return result;
+            });
+        }
+
+        form.on('submit(save)', function () {
+            var data = read();
+            if (data.webhook_enabled && !data.webhook_url.trim()) {
+                layer.msg('启用 Webhook 时，URL 不能为空', {icon: 2, time: 2000});
+                return false;
+            }
+
+            var loading = layer.msg('正在保存…', {icon: 16, shade: 0.2, time: 0});
+            post('/webhook', data).then(function (result) {
+                layer.close(loading);
+                snapshot = read();
+                unsavedChanges.markSaved(unsavedChanges.version());
+                layer.msg(result.msg || '保存成功', {icon: 1, time: 1500});
+            }).catch(function (err) {
+                layer.close(loading);
+                layer.msg(err && err.message ? err.message : '保存失败', {icon: 2, time: 2500});
+            });
+            return false;
+        });
+
+        /* 模拟测试：不落盘，只把当前表单内容按真实推送流程跑一次 */
+        $('#webhook-test').on('click', function () {
+            var data = read();
+            if (!data.webhook_url) {
+                layer.msg('请先输入 Webhook URL', {icon: 0, time: 2000});
+                return;
+            }
+            if (!/^https?:\/\//.test(data.webhook_url)) {
+                layer.msg('请输入有效的 HTTP(S) URL', {icon: 2, time: 2000});
+                return;
+            }
+
+            var loading = layer.msg('正在测试 Webhook 连接…', {icon: 16, shade: 0.3, time: 0});
+            post('/mock', data).then(function (result) {
+                layer.close(loading);
+                layer.msg(result.msg || '测试成功', {icon: 1, time: 2000});
+            }).catch(function (err) {
+                layer.close(loading);
+                layer.msg(err && err.message ? err.message : '测试失败', {icon: 2, time: 3000});
+            });
+        });
+
+        $('.reset').on('click', function () {
+            if (JSON.stringify(read()) === JSON.stringify(snapshot)) {
+                return;
+            }
+            layer.confirm('放弃未保存的修改，恢复到进入页面时的配置？', {title: '重置'}, function (index) {
+                write(snapshot);
+                layer.close(index);
+            });
         });
     });
+
+    /* ---------------- 可用变量：点击插入到光标位置 ---------------- */
+    (function () {
+        var insertableFields = ['url', 'request_body'];
+        var lastFocused = document.getElementById('url');
+
+        insertableFields.forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.addEventListener('focus', function () { lastFocused = el; });
+        });
+
+        document.querySelectorAll('.webhook-var').forEach(function (chip) {
+            chip.addEventListener('click', function () {
+                var text = chip.getAttribute('data-var');
+                var el = lastFocused;
+                if (!el) return;
+                // 目标输入框可能正躺在另一个 tab 里（被 display:none 收起），
+                // 隐藏元素无法 focus，先把它的 tab 切回来再插入
+                if (!el.offsetParent) {
+                    var host = document.querySelector('[data-tabs]');
+                    if (host && host.dnetShowTabOf) host.dnetShowTabOf(el);
+                }
+                el.focus();
+                var start = el.selectionStart, end = el.selectionEnd;
+                el.value = el.value.slice(0, start) + text + el.value.slice(end);
+                el.selectionStart = el.selectionEnd = start + text.length;
+
+                // 赋值不会触发 input 事件，手工补一个，未保存提醒才认得出这次改动
+                el.dispatchEvent(new Event('input', {bubbles: true}));
+
+                chip.classList.add('inserted');
+                setTimeout(function () { chip.classList.remove('inserted'); }, 600);
+            });
+        });
+    }());
 }());
 </script>
+<script src="/static/tabs.js"></script>
 </body>
 </html>

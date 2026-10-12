@@ -1,111 +1,208 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>D-NET</title>
     <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="/static/css/layui.css">
-</head>
-<body class="login-bg">
-<style>
-    .login-bg {
-        background: rgb(241, 241, 241) !important;
-    }
-
-    .login-container {
-        margin: 145px auto 0 auto;
-        min-height: auto;
-        max-width: 420px;
-        padding: 40px;
-        background-color: #ffffff;
-        margin-left: auto;
-        margin-right: auto;
-        border-radius: 4px;
-        box-sizing: border-box;
-    }
-
-    .login-other .layui-icon {
-        position: relative;
-        display: inline-block;
-        margin: 0 2px;
-        top: 2px;
-        font-size: 26px;
-    }
-
-    .layui-btn-fluid {
-        height: 50px;
-    }
-
-    .layui-input-wrap {
-        line-height: 50px;
-    }
-
-    .layui-input {
-        height: 50px;
-    }
-
-    .layui-input-prefix .layui-icon {
-        font-size: 18px;
-    }
-
-    .layui-input-suffix .layui-icon {
-        font-size: 20px;
-    }
-
-    .layui-input-affix {
-        line-height: 50px;
-
-    }
-
-    .logo-header {
-        text-align: center;
-        margin-bottom: 20px;
-        color: #7a7777;
-    }
-    /* 底部区域样式 */
-    .layui-footer {
-        position: absolute;
-        left: 0;
-        bottom: 0;
-        width: 100%;
-        line-height: 30px;
-        padding: 20px;
-        text-align: center;
-        box-sizing: border-box;
-        color: rgba(0,0,0,.5);
-    }
-    .layui-footer .layui-container > div {
-        margin: 0;
-    }
-
-    .layui-footer p {
-        margin: 5px 0;
-        font-size: 14px;
-        color: #666;
-    }
-
-    .layui-footer a {
-        color: #1e9fff;
-        text-decoration: none;
-        transition: color 0.3s ease;
-    }
-
-    .layui-footer a:hover {
-        color: #01aaed;
-        text-decoration: underline;
-    }
-
-    /* 媒体查询：屏幕高度较小时隐藏 footer */
-    @media (max-height: 650px) {
-        .layui-footer {
-            display: none;
+    <!-- 登录页原先只加载 layui.css、自带一套内联样式，等于整个在外壳的令牌
+         体系之外：底色 #f1f1f1、圆角 4px、字体是 layui 默认栈。挂上 common.css
+         之后它才和里面的 10 个页面共用同一套颜色 / 字体 / 阴影 / 动效。 -->
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        /* 登录页是独立文档（不套外壳），排版与氛围在这里声明。
+           底纹与字体来自 common.css 的 html body；这里只管这一屏的构成。 */
+        body.login-page {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 32px 20px;
         }
-    }
-</style>
-<form class="layui-form">
-    <div class="login-container">
-        <div class="logo-header"><h2>D-NET</h2></div>
+
+        /* 氛围层：两团极淡的色晕（品牌蓝在上、琥珀在下），给网格底加一点纵深。
+           固定定位、不接指针事件；它没有 fixed 后代，不会给别的东西制造
+           包含块。 */
+        .login-atmos {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background:
+                radial-gradient(700px 340px at 50% 10%, rgba(29, 107, 168, .1), transparent 70%),
+                radial-gradient(520px 300px at 84% 90%, rgba(194, 114, 26, .06), transparent 70%);
+        }
+
+        /* box-sizing 必须显式写死。login.html 只挂 layui.css + common.css，
+           common.css 里那套 border-box 是挂在 .dnet-shell * 上的，外壳不进登录页；
+           而 layui 只给 .layui-input / .layui-btn 这类"它自己的控件"补了 border-box，
+           普通元素仍是 content-box。所以 width:100% + 30px 内边距在这里是"溢出"
+           而不是"内缩"：1440 下 max-width:400 实际渲染成 462，400 下卡片左边缘
+           被挤到 -1px。 */
+        .login-card {
+            position: relative;
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 400px;
+            padding: 30px 30px 26px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: var(--card);
+            box-shadow: var(--shadow-3);
+        }
+
+        /* 面板铭牌，与外壳的卡片同一处语言 */
+        .login-card::before {
+            content: "";
+            position: absolute;
+            left: -1px;
+            top: -1px;
+            width: 34px;
+            height: 2px;
+            background: var(--brand);
+            border-radius: 4px 0 0 0;
+        }
+
+        /* ---- 品牌区：左对齐，不做居中标题 ----
+           登录页唯一一处可以放身份的地方，居中的话就变成"通用后台模板"了。 */
+        .login-brand {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            margin-bottom: 24px;
+        }
+
+        /* 与侧边栏同款信号铭牌：三条递增竖杠 + 145° 渐变 */
+        .login-mark {
+            flex: 0 0 34px;
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            background-image:
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M5.5 18.5v-3.5M12 18.5V9.5M18.5 18.5V5.5'/%3E%3C/g%3E%3C/svg%3E"),
+                linear-gradient(145deg, #2a7cbd, #12507f);
+            background-repeat: no-repeat;
+            background-position: center, 0 0;
+            background-size: 19px 19px, cover;
+            box-shadow: 0 1px 4px rgba(18, 80, 127, .3), inset 0 1px 0 rgba(255, 255, 255, .28);
+        }
+
+        .login-brand h1 {
+            margin: 0;
+            font-size: 21px;
+            font-weight: 700;
+            line-height: 1.2;
+            letter-spacing: .01em;
+            color: var(--text);
+        }
+
+        .login-brand p {
+            margin: 4px 0 0;
+            font-size: 11.5px;
+            letter-spacing: .04em;
+            color: var(--muted);
+        }
+
+        /* ---- 表单 ---- */
+        .login-card .layui-form-item {
+            margin-bottom: 13px;
+        }
+
+        /* 44px 是触摸目标的下限，也是这一屏看起来"精密"而不"松散"的高度 */
+        .login-card .layui-input-wrap,
+        .login-card .layui-input-affix {
+            line-height: 44px;
+        }
+
+        .login-card .layui-input {
+            height: 44px;
+            font-size: 13.5px;
+        }
+
+        .login-card .layui-input-prefix .layui-icon {
+            font-size: 17px;
+        }
+
+        .login-card .layui-input-suffix .layui-icon {
+            font-size: 19px;
+        }
+
+        .login-card .layui-btn-fluid {
+            height: 44px;
+            line-height: 44px;
+            font-size: 14px;
+            letter-spacing: .06em;
+        }
+
+        /* ---- 页脚：版本与授权，压到卡片外右下，不跟卡片抢注意力 ---- */
+        .login-foot {
+            margin-top: 20px;
+            font-size: 11.5px;
+            line-height: 1.8;
+            letter-spacing: .02em;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        .login-foot a {
+            color: var(--brand);
+            text-decoration: none;
+        }
+
+        .login-foot a:hover {
+            text-decoration: underline;
+        }
+
+        /* 入场：卡片落下 → 品牌 → 两个字段 → 按钮 → 页脚，一次编排。
+           减弱动效时整段不跑。 */
+        @media (prefers-reduced-motion: no-preference) {
+            .login-card {
+                animation: dnet-rise var(--dur-slow) var(--ease-out) both;
+            }
+
+            .login-brand {
+                animation: dnet-rise var(--dur-base) var(--ease-out) 70ms both;
+            }
+
+            .login-card .layui-form-item:nth-child(1) {
+                animation: dnet-rise var(--dur-base) var(--ease-out) 140ms both;
+            }
+
+            .login-card .layui-form-item:nth-child(2) {
+                animation: dnet-rise var(--dur-base) var(--ease-out) 200ms both;
+            }
+
+            .login-card .layui-form-item:nth-child(3) {
+                animation: dnet-rise var(--dur-base) var(--ease-out) 260ms both;
+            }
+
+            .login-foot {
+                animation: dnet-rise var(--dur-base) var(--ease-out) 320ms both;
+            }
+        }
+
+        @media screen and (max-width: 420px) {
+            .login-card {
+                padding: 24px 20px 20px;
+            }
+        }
+    </style>
+</head>
+<body class="login-page">
+<div class="login-atmos" aria-hidden="true"></div>
+
+<main class="login-card">
+    <div class="login-brand">
+        <span class="login-mark" aria-hidden="true"></span>
+        <div>
+            <h1>D-NET</h1>
+            <p>动态 NET 解析管理系统</p>
+        </div>
+    </div>
+
+    <form class="layui-form">
         <div class="layui-form-item">
             <div class="layui-input-wrap">
                 <div class="layui-input-prefix">
@@ -120,34 +217,34 @@
                 <div class="layui-input-prefix">
                     <i class="layui-icon layui-icon-password"></i>
                 </div>
-                <input type="password" name="password" value="" lay-verify="required" placeholder="密   码"
+                <input type="password" name="password" value="" lay-verify="required" placeholder="密码"
                        lay-reqtext="请填写密码" autocomplete="off" class="layui-input" lay-affix="eye">
             </div>
         </div>
         <div class="layui-form-item">
-            <button id="submit" class="layui-btn layui-btn-fluid" lay-submit lay-filter="login">{{if .EmptyUser}}登录并配置为管理员账号{{else}}登录 {{end}}</button>
+            <button id="submit" class="layui-btn layui-btn-fluid" lay-submit
+                    lay-filter="login">{{if .EmptyUser}}登录并配置为管理员账号{{else}}登录{{end}}</button>
         </div>
-    </div>
-</form>
-<div class="layui-footer">
-    <div class="layui-container">
-        <div style="text-align: center; color: #666; width: 100%;">
-            <p style="margin: 0;">
-                D-NET {{.Version}} &nbsp;|&nbsp;
-                <a href="https://github.com/cxbdasheng/dnet" target="_blank"
-                   style="color: #1e9fff; text-decoration: none;">GitHub</a>
-                &nbsp;|&nbsp;
-                <span>基于 MIT 开源协议</span>
-                &nbsp;|&nbsp;
-                <span>© 2025{{if gt .CurrentYear 2025}}–{{.CurrentYear}}{{end}} D-NET </span>
-            </p>
-        </div>
-    </div>
-</div>
+    </form>
+</main>
+
+<footer class="login-foot">
+    D-NET {{.Version}} &nbsp;·&nbsp;
+    <a href="https://github.com/cxbdasheng/dnet" target="_blank">GitHub</a> &nbsp;·&nbsp;
+    基于 MIT 开源协议 &nbsp;·&nbsp;
+    © 2025{{if gt .CurrentYear 2025}}–{{.CurrentYear}}{{end}}
+</footer>
 
 </body>
 <script src="/static/layui.js"></script>
 <script>
+    // 会话过期时，内容 iframe 会先于顶层壳拿到登录页。如果放任它留在 iframe 里，
+    // 登录成功后的 window.location.href='/' 会把整个壳嵌进内容框（页面套页面）。
+    // 一旦发现自己在 iframe 里，就把顶层整个带去 '/' —— 未登录会被重定向到
+    // 顶层登录页，登录后正常整页进入，不会出现嵌套。
+    if (window.top !== window.self) {
+        window.top.location.replace('/');
+    }
     layui.use(function () {
         var form = layui.form;
         var layer = layui.layer;
@@ -211,10 +308,11 @@
             return false; // 阻止默认 form 跳转
         });
 
-        // 键盘事件处理
+        // 键盘事件处理：回车提交（原来选的是 #login-submit，页面上并不存在这个
+        // id，所以这条一直是空转的 —— 按钮的 id 是 submit）
         $(document).keydown(function (event) {
-            if (event.keyCode === 13) { // Enter键
-                $('#login-submit').click();
+            if (event.keyCode === 13) {
+                $('#submit').click();
             }
         });
     });

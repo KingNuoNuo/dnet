@@ -1,271 +1,3722 @@
-.layui-body {
-    left: 0px;
+/* ==========================================================================
+   D-NET 通用样式 · QWRT 风格重构版
+   --------------------------------------------------------------------------
+   分两层，互不越界：
+
+   1) 外壳层（.dnet-shell .dnet-*）—— 只作用于 home.html。
+      左侧竖向导航 + 顶栏状态条 + iframe 内容区。
+      iframe 内的配置页是独立 document，拿不到这些 class，天然隔离。
+
+   2) 页面层（.layui-* 覆盖）—— 作用于 iframe 内的各配置页。
+      layui.css 先加载、本文件后加载，同优先级下后者覆盖前者。
+
+   表单基线：标签列 170px，内容区起始 170px。这两个数值必须一致，
+   否则同一页里「标签 → 输入框」的起始位置会错开。
+   ========================================================================== */
+
+/* ==========================================================================
+   1. 主题变量 —— 工业仪表盘
+   --------------------------------------------------------------------------
+   四层色板，各司其职，互不借用：
+
+   ① 表面层（--bg / --card / --side-*）—— 带冷调的中性灰阶，像仪器外壳。
+      底色刻意不用纯白：白留给卡片，卡片的「抬起」靠明度差，不靠阴影堆。
+   ② 主色层（--brand*）—— 钢蓝。承担身份与主动作。比原来的 #1e6fbf 降了
+      饱和度、压深一档，在冷灰底上读起来像仪表刻度，而不像网页链接。
+   ③ 强调层（--accent*）—— 琥珀。全站只给「活体 / 当前 / 流」这类指示
+      （顶栏信号轨的告警段、自动刷新的激活态），不给按钮、不给链接。
+      单页只留一个强调色，是工业仪器的老规矩。
+   ④ 状态层（--ok / --warn / --err + -ink / -soft / -line）—— 语义色，
+      不跟品牌色走：「运行中」在国内运维界面里默认读作绿色，染成品牌蓝
+      会削弱辨识。每组三档：
+        --x-soft  徽标 / 提示条的底色
+        --x-line  徽标 / 提示条的描边
+        --x-ink   压在 -soft 底上的文字色，专门调到 ≥4.5:1
+        --x       实心填充（FATAL 徽标、危险按钮），白字压其上 ≥4.5:1
+
+   文本三阶也都实测过对比度（不是目测）：--text 15:1、--text-2 8:1、
+   --muted 4.8:1（均对白卡片底）。--muted 比原值明显压深了 —— 原来的
+   #8d949a 只有 3.1:1，11px 的说明文字压在上面是读不清的。
+   ========================================================================== */
+:root {
+    --brand: #1d6ba8;
+    --brand-ink: #12507f;
+    --brand-soft: #eaf2f9;
+    --brand-line: #c9dcee;
+
+    --accent: #c2721a;
+    --accent-ink: #8a5a08;
+    --accent-soft: #fdf3e3;
+    --accent-line: #f0ddbd;
+
+    --side-bg: #e6ebee;
+    --side-hover: #dbe3e8;
+    --side-active: #12507f;
+
+    --bg: #eff2f4;
+    --card: #fff;
+
+    --text: #101a22;
+    --text-2: #3f4a54;
+    --muted: #6a737c;
+
+    --line: #d7dee3;
+    --line-2: #e8edf0;
+    --input-line: #cbd5dc;
+
+    --ok: #1e8a5c;
+    --ok-ink: #116b47;
+    --ok-soft: #e9f5ef;
+    --ok-line: #cbe7da;
+
+    --warn: #b5791a;
+    --warn-ink: #8a5a08;
+    --warn-soft: #fbf3e2;
+    --warn-line: #eeddb9;
+
+    --err: #c33f30;
+    --err-ink: #a52f22;
+    --err-soft: #fceeed;
+    --err-line: #f1d2cd;
+
+    --radius: 4px;
+    --nav-w: 212px;
+    --strip-h: 44px;
+
+    /* 间距刻度：纵向节奏只从这套里取值，不随手写 px */
+    --sp-1: 4px;
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 24px;
+    --sp-6: 40px;
+
+    /* 三级高度。阴影带一点点冷色而不是纯黑 —— 纯黑压在这个冷灰底上会发脏 */
+    --shadow-1: 0 1px 2px rgba(16, 32, 48, .05), 0 1px 1px rgba(16, 32, 48, .03);
+    --shadow-2: 0 2px 8px rgba(16, 32, 48, .08), 0 1px 2px rgba(16, 32, 48, .04);
+    --shadow-3: 0 14px 34px rgba(16, 32, 48, .13), 0 2px 8px rgba(16, 32, 48, .06);
+
+    --dur-fast: 140ms;
+    --dur-base: 300ms;
+    --dur-slow: 620ms;
+    --ease-out: cubic-bezier(.16, 1, .3, 1);
+    --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+
+    /* 字体：零外链、纯系统栈 —— 设备跑在局域网里，外链字体在断网或被代理
+       拦掉时会静默回落，字形参差不齐比没有字体更糟。差异化靠字号梯度、
+       字距、字重和等宽数字来做，不靠换字体。 */
+    --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas,
+    "Liberation Mono", "Courier New", monospace;
 }
 
-.layui-layout-admin .layui-footer {
-    left: 0px;
-    background-color: #fff;
-    border-top: 1px solid #e6e6e6;
-    font-size: 14px;
-    line-height: 1.6;
-    /*height: 60px;*/
+/* ==========================================================================
+   2. 外壳层：左侧导航 + 顶栏 + 内容区
+   ========================================================================== */
+body.dnet-shell {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.65 var(--font);
+    -webkit-font-smoothing: antialiased;
+}
+
+.dnet-shell *,
+.dnet-shell *::before,
+.dnet-shell *::after {
+    box-sizing: border-box;
+}
+
+/* 外壳锁死一屏高：导航与顶栏各占各的，剩下的全部给 iframe。
+   不用 calc(100vh - 105px) 硬算，顶栏高度改了也不会失配。 */
+.dnet-app {
+    display: flex;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+}
+
+/* -------- 左侧导航 -------- */
+.dnet-sidebar {
+    width: var(--nav-w);
+    flex: 0 0 var(--nav-w);
+    background: var(--side-bg);
+    border-right: 1px solid #e1e4e6;
+    height: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    z-index: 20;
+}
+
+.dnet-brand {
+    padding: 16px 18px 14px;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: .5px;
+    color: #1f2629;
+    line-height: 1.3;
+}
+
+.dnet-brand a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.dnet-brand small {
+    display: block;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--muted);
+    letter-spacing: 0;
+    margin-top: 3px;
+}
+
+.dnet-nav {
+    padding: 4px 8px 20px;
+    flex: 1;
+}
+
+.dnet-nav-title {
+    padding: 12px 10px 5px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: .6px;
+}
+
+.dnet-nav-sep {
+    height: 1px;
+    background: #e1e4e6;
+    margin: 10px 10px;
+}
+
+.dnet-nav-item {
     display: flex;
     align-items: center;
+    gap: 9px;
+    padding: 8px 10px;
+    margin: 1px 0;
+    border-radius: var(--radius);
+    color: var(--text-2);
+    font-size: 13px;
+    cursor: pointer;
+    position: relative;
+    user-select: none;
+    transition: background .14s ease, color .14s ease;
 }
 
-.layui-layout-admin .layui-logo {
-    width: auto;
+.dnet-nav-item:hover {
+    background: var(--side-hover);
+    color: var(--text);
 }
 
-.layui-layout-admin .layui-body {
-    background: #f2f2f2;
+.dnet-nav-item:hover .tag {
+    color: var(--text-2);
+}
+
+.dnet-nav-item.active {
+    background: var(--side-active);
+    color: #fff;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+}
+
+.dnet-nav-item.active .icon {
+    opacity: 1;
+}
+
+.dnet-nav-item.active .tag {
+    color: rgba(255, 255, 255, .78);
+}
+
+/* 导航图标用 1.7px 细线 SVG（对齐原型 .ic），不用 layui 那套字体图标：
+   字体图标在 13px 正文旁显得又粗又满，细线图标才配得上这套留白。 */
+.dnet-nav-item .icon,
+.dnet-nav-title .icon {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 15px;
+    text-align: center;
+    opacity: .78;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* 右侧的英文缩写（DCDN / DDNS …）——导航项的身份补充 */
+.dnet-nav-item .tag {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: .4px;
+}
+
+/* -------- 主区 -------- */
+.dnet-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* 顶栏：粘在顶部，滚到表单中段也看得见。
+   它承载「当前模块 + 运行状态」，是全站唯一一处状态展示位。 */
+.dnet-topstrip {
+    height: var(--strip-h);
+    flex: 0 0 var(--strip-h);
+    background: var(--brand);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    color: #fff;
+    font-size: 13px;
+    gap: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 15;
+}
+
+.dnet-topstrip .dnet-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #8fe0bb;
+    flex: 0 0 7px;
+    box-shadow: 0 0 0 3px rgba(143, 224, 187, .25);
+    animation: dnet-pulse 2s infinite;
+}
+
+.dnet-topstrip .dnet-dot.off {
+    background: #c8ced2;
+    box-shadow: 0 0 0 3px rgba(200, 206, 210, .22);
+    animation: none;
+}
+
+.dnet-topstrip .dnet-dot.warn {
+    background: #f7c948;
+    box-shadow: 0 0 0 3px rgba(247, 201, 72, .25);
+}
+
+.dnet-topstrip .dnet-dot.err {
+    background: #ff8a80;
+    box-shadow: 0 0 0 3px rgba(255, 138, 128, .25);
+}
+
+@keyframes dnet-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dnet-topstrip .dnet-dot {
+        animation: none;
+    }
+}
+
+.dnet-strip-name {
+    font-weight: 600;
+}
+
+/* 顶栏里的补充说明，弱化处理 */
+.dnet-strip-sub {
+    font-style: normal;
+    font-size: 12px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, .72);
+    margin-left: 10px;
+    padding-left: 11px;
+    border-left: 1px solid rgba(255, 255, 255, .3);
+}
+
+.dnet-strip-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.dnet-strip-right > a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: rgba(255, 255, 255, .88);
+    text-decoration: none;
+    font-size: 12.5px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: background .14s ease, color .14s ease;
+    white-space: nowrap;
+}
+
+.dnet-strip-right > a:hover {
+    background: rgba(255, 255, 255, .16);
+    color: #fff;
+    text-decoration: none;
+}
+
+/* 顶栏里的小圆点徽标（日志红点） */
+.dnet-strip-right .dnet-badge {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #ff5722;
+    display: none;
+    flex: 0 0 6px;
+    box-shadow: 0 0 0 2px rgba(255, 87, 34, .3);
+}
+
+.dnet-strip-right .dnet-user {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.dnet-strip-right .dnet-user img {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: block;
+    border: 1px solid rgba(255, 255, 255, .5);
+}
+
+/* 顶栏里的头像下拉：复用 layui 的 nav-child，只覆盖配色 */
+.dnet-strip-right .layui-nav {
+    background: none;
+    padding: 0;
+}
+
+.dnet-strip-right .layui-nav .layui-nav-item {
+    line-height: normal;
+}
+
+.dnet-strip-right .layui-nav .layui-nav-item > a {
+    padding: 0;
+    color: rgba(255, 255, 255, .88);
+}
+
+.dnet-strip-right .layui-nav .layui-nav-item > a:hover {
+    background: none;
+}
+
+.dnet-strip-right .layui-nav .layui-nav-child {
+    top: 34px;
+    right: 0;
+    left: auto;
+    min-width: 132px;
+    border-radius: var(--radius);
+    box-shadow: 0 4px 14px rgba(16, 24, 32, .14);
+    border: 1px solid var(--line);
+    padding: 4px 0;
+    background: #fff;
+}
+
+.dnet-strip-right .layui-nav .layui-nav-child dd a {
+    color: var(--text-2);
+    font-size: 13px;
+    padding: 0 16px;
+    text-align: left;
+}
+
+.dnet-strip-right .layui-nav .layui-nav-child dd a:hover {
+    background: var(--brand-soft);
+    color: var(--brand-ink);
+}
+
+.dnet-strip-right .layui-nav .layui-nav-child hr {
+    margin: 4px 0;
+    border: none;
+    border-top: 1px solid var(--line-2);
+}
+
+.dnet-strip-right .layui-nav .layui-nav-bar {
+    display: none !important;
+}
+
+.dnet-strip-right .layui-nav .layui-nav-more {
+    display: none;
+}
+
+/* 内容区：iframe 撑满剩余高度，自身不滚动（滚动交给 iframe 内文档） */
+.dnet-content {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    background: var(--bg);
+}
+
+#content-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+    background: var(--bg);
+}
+
+/* 移动端汉堡按钮：桌面隐藏 */
+.dnet-menu-btn {
+    display: none;
+    background: rgba(255, 255, 255, .14);
+    border: 1px solid rgba(255, 255, 255, .22);
+    color: #fff;
+    border-radius: var(--radius);
+    width: 28px;
+    height: 26px;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+}
+
+/* 汉堡 / 关闭两条线，靠 .is-open 切换显隐 */
+.dnet-menu-btn .menu-ico {
+    width: 15px;
+    height: 15px;
+    display: block;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+.dnet-menu-btn .i-close {
+    display: none;
+}
+
+.dnet-menu-btn.is-open .i-menu {
+    display: none;
+}
+
+.dnet-menu-btn.is-open .i-close {
+    display: block;
+}
+
+.dnet-shade {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .55);
+    z-index: 19;
+}
+
+/* ==========================================================================
+   3. 页面层：内容容器
+   --------------------------------------------------------------------------
+   iframe 内的配置页是独立 document，字体与底色要在这里再声明一次，
+   否则会退回 layui 的默认字体，跟外壳对不上。
+   html body 的写法是为了压过各页面自带的那句 body{background:#f2f2f2}。
+   ========================================================================== */
+html {
+    background: var(--bg);
+}
+
+html body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.65 var(--font);
+    -webkit-font-smoothing: antialiased;
+}
+
+.layui-fluid,
+.layui-container {
+    /* width:100% + 左右 padding 在 content-box 下会横向溢出，
+       页面因此出现横向滚动条（settings / webhook 实测多出 30px）。 */
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 20px 24px 48px;
+}
+
+/* 页面描述句 —— 对齐原型 .page-head：
+   「当前在哪个模块」由左侧导航的高亮承担，右侧不重复模块名；
+   这里只留一句「这个页是干什么的」，让人确认没走错页。
+   放在 tab / 卡片之上，是页面上唯一的页面级文字。 */
+.page-desc {
+    margin: 0 2px 14px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-2);
+    max-width: 780px;
+}
+
+/* --------------------------------------------------------------------------
+   3.1 页面级 tab —— 把同一模块的多个分组收进一屏，免去长页面向下滚
+   原型 .page-tabs 的移植：下划线式，未激活用灰、激活用品牌蓝 + 加粗。
+
+   与卡片头二选一：tab 文案就是原来的卡片标题，所以面板内的 .layui-card-header
+   全部删掉 —— 否则 tabs 写「DCDN 设置」、卡片头再写一遍「DCDN 设置」，
+   正是之前被否掉的那种重复。
+   -------------------------------------------------------------------------- */
+.dnet-tabs {
+    display: flex;
+    gap: 2px;
+    margin: 0 0 16px;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+}
+
+.dnet-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.dnet-tabs button {
+    appearance: none;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    font: inherit;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--text-2);
+    padding: 9px 16px;
+    margin-bottom: -1px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color .15s;
+}
+
+.dnet-tabs button:hover {
+    color: var(--brand-ink);
+}
+
+.dnet-tabs button.on {
+    color: var(--brand-ink);
+    border-bottom-color: var(--brand);
+    font-weight: 600;
+}
+
+/* 首个 tab 去掉左内边距：让 tab 文案与上方描述句、下方卡片左边缘共用一条左基准线，
+   否则一页里会出现三条互不对齐的左边线。 */
+.dnet-tabs button:first-child {
+    padding-left: 0;
+}
+
+/* 面板：非激活的一律收起。
+   注意「收起」这条规则挂在 html.dnet-tabs-ready 上，不能一上来就生效 ——
+   layui 渲染 <select> 时要按容器实测算宽度，面板若已 display:none 会量成 0，
+   切回来就是个塌掉的下拉框。tabs.js 初始化完再加这个类。
+   副作用是优雅降级：脚本没跑起来时所有面板平铺，等同于改动前的卡片堆叠。 */
+.dnet-tabs-ready .dnet-panel {
+    display: none;
+}
+
+.dnet-tabs-ready .dnet-panel.on {
+    display: block;
+}
+
+/* 面板不再有 header，body 顶部补回与卡片头等高的留白 */
+.dnet-panel > .layui-card-body:first-child {
+    padding-top: 14px;
+}
+
+/* ==========================================================================
+   4. 卡片
+   与原型 .card / .card-head / .card-body / .card-foot 一一对应。
+   ========================================================================== */
+.layui-card {
+    margin-bottom: 16px;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    box-shadow: 0 1px 2px rgba(16, 24, 32, .03);
+    background: var(--card);
+    overflow: visible;
+}
+
+.layui-card:last-child {
+    margin-bottom: 0;
 }
 
 .layui-card-header {
-    font-size: 18px;
+    padding: 13px 20px;
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--text);
+    border-bottom: 1px solid var(--line-2);
+    border-radius: var(--radius) var(--radius) 0 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--card);
 }
 
+.layui-card-body {
+    padding: 8px 20px 14px;
+}
+
+/* 卡片内最后一个表单项不留多余下边距 */
+.layui-card-body > .layui-form-item:last-child,
+.layui-card-body > form > .layui-form-item:last-child,
+.layui-card-body > .layui-row:last-child > .layui-form-item:last-child {
+    margin-bottom: 0;
+}
+
+/* 卡片内的分隔线贯穿整个卡片，而不是缩在内容区里 */
+.layui-card-body > hr {
+    margin: 14px -20px;
+    border: none;
+    border-top: 1px solid var(--line-2);
+}
+
+/* 表单里的分组小标题（<fieldset>/<legend>）→ 原型 .group-title：
+   比正文小、字距拉开、用灰而不是黑 —— 只做分节，不做强调。 */
+.layui-card-body .layui-elem-field {
+    margin: 0;
+    padding: 0;
+    border: none;
+}
+
+.layui-card-body .layui-elem-field legend {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: .6px;
+    line-height: 1.5;
+    padding: 16px 0 6px;
+    margin: 0;
+    border: none;
+}
+
+.layui-card-body .layui-elem-field > .layui-field-box {
+    padding: 0;
+}
+
+/* 承放「立即提交 / 重置」的行做成卡片底部的操作区 —— 原型 .card-foot：
+   淡灰底 + 上细线，按钮右对齐。让长表单一眼能看出到哪儿是终点，
+   而不是让两个按钮浮在表单末尾不知归属。 */
+.layui-card-body > .layui-form-item:has(button[type="submit"]) {
+    margin: 16px -20px -14px;
+    padding: 13px 20px;
+    background: #fcfcfc;
+    border-top: 1px solid var(--line-2);
+    border-radius: 0 0 var(--radius) var(--radius);
+    text-align: right;
+}
+
+/* 操作区内部的分工对齐原型 .card-foot：按钮靠右，说明留在左侧。
+   说明若跟着 text-align:right 一起右对齐，长句读起来很别扭。 */
+.layui-card-body > .layui-form-item:has(button[type="submit"]) tip,
+.layui-card-body > .layui-form-item:has(button[type="submit"]) .tip,
+.layui-container > .layui-form-item:has(button[type="submit"]) tip,
+.layui-container > .layui-form-item:has(button[type="submit"]) .tip {
+    text-align: left;
+    margin-left: 0;
+}
+
+/* 相邻按钮之间留 9px（原型 .card-foot 的 gap），
+   HTML 里 </button><button> 紧挨着写，默认会粘成一块 */
+.layui-card-body > .layui-form-item:has(button[type="submit"]) .layui-btn + .layui-btn,
+.layui-container > .layui-form-item:has(button[type="submit"]) .layui-btn + .layui-btn {
+    margin-left: 9px;
+}
+
+/* ==========================================================================
+   5. 表单
+   --------------------------------------------------------------------------
+   栅格与原型 .f-row 一致：标签列固定 170px（原型 168px，取整到能容下
+   "AccessKey Secret：" 这类最长标签），控件列自适应但封顶 620px。
+   ========================================================================== */
+.layui-form-item {
+    margin-bottom: 0;
+    padding: 10px 0;
+}
+
+/* 相邻行之间只靠上下 padding 拉开 20px，不画分隔线：
+   1px 的 #f6f7f8 在白底上对比度低到看不见，却让表单读起来像表格。 */
+
+.layui-form-label {
+    /* layui 全站是 content-box：不改成 border-box 的话，width + 左右 padding
+       会比 .layui-input-block 的 margin-left 多出 24px，标签与输入框错开 */
+    box-sizing: border-box;
+    width: 170px;
+    /* 左对齐：与卡片左边缘、上方说明文字共用同一条左基准线 */
+    padding: 9px 12px 9px 0;
+    line-height: 20px;
+    text-align: left;
+    color: var(--text-2);
+    font-weight: 400;
+    font-size: 13px;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.layui-input-block {
+    margin-left: 170px;
+}
+
+/* 控件封顶：输入框不随视口无限拉长（原型 .f-ctrl{max-width:620px}）。
+   封在 .layui-input-block 上而不是逐个控件上，这样 block 里的所有控件
+   （input / select / textarea / 内联组）一次性受控。 */
+.layui-form-item > .layui-input-block {
+    max-width: 620px;
+}
+
+/* textarea 与底部提交行例外：
+   - textarea（证书 PEM 这类长文本）本来就该整行铺开；
+   - 提交行的按钮靠父容器的 text-align 定位，父容器一窄，「右对齐」就变成
+     「右对齐到 620px 那条线」，看着像居中。
+   两处都必须放开上限。 */
+.layui-form-item:has(.layui-textarea) > .layui-input-block,
+.layui-form-item:has(button[type="submit"]) > .layui-input-block {
+    max-width: none;
+}
+
+/* 输入框内联块：与标签同排时紧接标签右边缘，正好与 margin-left 的输入框块对齐 */
+.layui-form-item .layui-input-inline {
+    float: left;
+    width: 190px;
+    margin-right: 10px;
+}
+
+.layui-form-item .layui-input-inline.fr {
+    float: right;
+    margin-right: 0;
+}
+
+/* 输入框本体：字号与圆角对齐原型 .f-ctrl input（13px / 3px）。
+   layui 默认 14px 字偏大，和 13px 的标签放在一起不匀。 */
+.layui-input,
+.layui-textarea,
+.layui-select {
+    font-size: 13px;
+    border-color: var(--input-line);
+    border-radius: 3px;
+    color: var(--text);
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.layui-input:focus,
+.layui-textarea:focus {
+    border-color: var(--brand) !important;
+    box-shadow: 0 0 0 3px var(--brand-soft);
+}
+
+.layui-input:hover,
+.layui-textarea:hover {
+    border-color: #c3c9cd;
+}
+
+/* 下拉选择框：面板圆角 / 阴影 / 选中态统一到品牌色 */
+.layui-form-select dl {
+    border-radius: 3px;
+    border-color: var(--line);
+    box-shadow: 0 4px 14px rgba(16, 24, 32, .12);
+    padding: 4px 0;
+}
+
+.layui-form-select dl dd {
+    font-size: 13px;
+}
+
+.layui-form-select dl dd.layui-this {
+    background-color: var(--brand-soft);
+    color: var(--brand-ink);
+    font-weight: 600;
+}
+
+/* 多行输入框：统一高度，允许纵向拖拽 */
+.layui-textarea {
+    min-height: 84px;
+    line-height: 20px;
+    resize: vertical;
+}
+
+/* 「秒 / 次」这类紧跟输入框的单位说明：仍与控件同行 */
+.layui-form-item .layui-input-inline + .layui-form-mid:not(.layui-word-aux) {
+    margin-left: 0;
+    top: 0;
+    padding: 9px 8px !important;
+    line-height: 20px;
+    font-size: 13px;
+    color: var(--text-2);
+}
+
+.layui-form-mid a {
+    color: var(--brand);
+}
+
+/* ==========================================================================
+   6. 说明文字（<tip> / .tip / .layui-word-aux）
+   原实现是 10px + line-height:10px + #a29c9c，又小又挤还容易重叠。
+   原型里说明文字是 12px / 1.6 行高 / 灰 —— 放在控件「下方」而不是同行，
+   同行会把说明挤成窄窄一条，读起来费力。
+   ========================================================================== */
+tip,
+.tip,
+.layui-form-item > .layui-input-block > tip,
+.layui-form-item > .layui-input-inline > tip,
+.dnet-form-http-ports-body > .layui-input-inline > tip {
+    display: block;
+    margin: 6px 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--muted);
+}
+
+tip:empty,
+.tip:empty {
+    display: none;
+}
+
+tip a,
+.tip a {
+    color: var(--brand);
+}
+
+/* 直接挂在表单项下的说明文字（不在 input-block 里），缩进对齐控件左边缘 */
+.layui-form-item > tip,
+.layui-form-item > .tip {
+    margin-left: 170px;
+}
+
+/* 跟在开关 / 控件后面那句辅助说明：换到下一行，缩进与控件左边缘对齐 */
+.layui-form-item > .layui-input-inline + .layui-form-mid.layui-word-aux,
+.layui-form-item > .layui-input-block + .layui-form-mid.layui-word-aux {
+    display: block;
+    float: none;
+    clear: both;
+    margin: 6px 0 0 170px;
+    padding: 0 !important;
+    top: 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--muted);
+}
+
+.layui-word-aux {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--muted);
+}
+
+/* ==========================================================================
+   7. 开关 / 单选 / 复选
+   --------------------------------------------------------------------------
+   原型里「是否开启」是一枚 15px 的方形勾选框（.cb .box），不是 layui 那枚
+   44×24 的绿色胶囊。两者语义相同（都绑在 checkbox 上），所以这里只重绘
+   外观：隐藏胶囊自带的圆点与 on/off 文案，用一条白勾表达选中。
+   顺带解决了绿胶囊 + 品牌蓝两套色系的冲突。
+   ========================================================================== */
+.layui-form-switch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    min-width: 0;
+    padding: 0;
+    margin-top: 11px;
+    line-height: 1;
+    border: 1.5px solid #c3c9cd;
+    border-radius: 2.5px;
+    background-color: #fff;
+    vertical-align: middle;
+    transition: border-color .15s, background-color .15s;
+}
+
+.layui-form-switch:hover {
+    border-color: var(--brand);
+}
+
+/* 勾 */
+.layui-form-switch::after {
+    content: "";
+    width: 8px;
+    height: 4.5px;
+    border-left: 2px solid #fff;
+    border-bottom: 2px solid #fff;
+    transform: rotate(-45deg) scale(0);
+    transition: transform .15s;
+    margin-top: -3px;
+}
+
+.layui-form-onswitch {
+    border-color: var(--brand);
+    background-color: var(--brand);
+}
+
+.layui-form-onswitch::after {
+    transform: rotate(-45deg) scale(1);
+}
+
+/* 隐藏胶囊自带的圆点与 on/off 文案 */
+.layui-form-switch > i,
+.layui-form-switch > div {
+    display: none !important;
+}
+
+/* 单选：进度圈缩小一档、未选灰、选中品牌色 */
+.layui-form-radio {
+    line-height: 22px;
+    margin: 5px 14px 0 0;
+    padding-right: 0;
+    font-size: 0;
+}
+
+.layui-form-radio > i {
+    font-size: 18px;
+    margin-right: 7px;
+    color: #c3c9cd;
+    transition: color .15s;
+}
+
+.layui-form-radio:hover > i {
+    color: var(--brand);
+}
+
+.layui-form-radioed > i {
+    color: var(--brand);
+}
+
+.layui-form-radio > * {
+    display: inline-block;
+    vertical-align: middle;
+    font-size: 13px;
+}
+
+.layui-form-radio > div {
+    color: var(--text-2);
+}
+
+/* 复选：方框 2.5px 圆角，选中填品牌色 + 白勾 */
+.layui-form-checkbox > i,
+.layui-form-checkbox[lay-skin="primary"] > i {
+    border-color: #c3c9cd;
+    border-radius: 2.5px;
+}
+
+.layui-form-checkbox:hover > i,
+.layui-form-checkbox[lay-skin="primary"]:hover > i {
+    border-color: var(--brand);
+}
+
+.layui-form-checked > i,
+.layui-form-checked[lay-skin="primary"] > i {
+    border-color: var(--brand);
+    background-color: var(--brand);
+    color: #fff;
+}
+
+/* ==========================================================================
+   8. 源站设置表格（DCDN / DDNS）
+   原来是「标签 + 一堆 float 定宽 inline」，总宽超出容器后整行换行、表头
+   与数据列全部错位。这里用 grid：隐藏的字段不占位，表头与任意一行数据
+   天然共用同一套列宽。表头左对齐、字号 12px，对齐原型 .tbl th。
+   ========================================================================== */
+.dnet-form-sources {
+    display: grid;
+    grid-template-columns: 170px minmax(150px, 1fr) 92px 84px 108px 168px 48px;
+    gap: 8px 10px;
+    align-items: start;
+    margin: 0 0 10px !important;
+    padding: 0;
+}
+
+/* .layui-row 自带的清除浮动伪元素在 grid 里会各占一格，必须去掉 */
+.dnet-form-sources::before,
+.dnet-form-sources::after {
+    display: none;
+    content: none;
+}
+
+/* 每行开头的空 label 不参与布局 */
+.dnet-form-sources > .layui-form-label {
+    display: none;
+}
+
+.dnet-form-sources > .layui-input-inline,
+.dnet-form-sources > .dnet-form-http-ports-body {
+    float: none;
+    width: auto !important;
+    margin: 0 !important;
+    left: 0;
+}
+
+.dnet-form-sources .layui-input,
+.dnet-form-sources .layui-select,
+.dnet-form-sources .layui-textarea {
+    width: 100%;
+    max-width: none;
+}
+
+.dnet-form-sources .layui-textarea {
+    min-height: 38px;
+    height: 38px;
+    resize: vertical;
+}
+
+/* 表头单元格：左对齐 + 12px 灰字（对齐原型 .tbl th）。
+   「HTTP / HTTPS 端口」这类长表头必须 nowrap —— 折成两行会把整行数据
+   往下顶，表头与数据行错位。宽度不够时靠外层的横向滚动兜底。 */
+.dnet-form-sources .dnet-form-header {
+    height: auto;
+    min-height: 38px;
+    line-height: 38px;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .3px;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.dnet-form-sources .layui-input-inline p,
+.dnet-form-sources .dnet-form-operation {
+    min-height: 38px;
+    height: auto;
+    margin: 0;
+    line-height: 38px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .3px;
+    color: var(--muted);
+    text-align: left;
+}
+
+.dnet-form-sources .dnet-form-operation {
+    font-weight: 600;
+    color: var(--muted);
+}
+
+/* 数据行里的控件垂向居中，与表头高度一致 */
+.dnet-form-sources .dnet-form-http-ports-body {
+    display: flex;
+    gap: 8px;
+}
+
+.dnet-form-sources .dnet-form-http-ports-body > .layui-input-inline {
+    flex: 1 1 0;
+    width: auto;
+    margin: 0;
+}
+
+.dnet-form-sources .btn-add-source,
+.dnet-form-sources .btn-remove-source {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+/* ==========================================================================
+   9.1 DPF：运行指标条 + 规则表格
+   --------------------------------------------------------------------------
+   把「下拉选一条、改完再选下一条」改成「一张表批改全部规则」，表格上方压
+   一条常驻指标条（左标签 / 中 KPI / 右就地动作）。
+
+   表格内的控件一律用原生元素，不交给 layui 渲染：layui 的 select 是按容器
+   实测算宽后再拿 div 顶替原元素，动态增删行时每次都得重渲染，容器一旦处于
+   隐藏态还会量成 0 宽。原生控件在 grid 里天然自适应，重建成本也低。
+   ========================================================================== */
+
+/* ---- 指标条 ---- */
+.dnet-stat {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--ok);
+    border-radius: var(--radius);
+    padding: 12px 18px;
+    margin: 0 0 16px;
+    box-shadow: 0 1px 2px rgba(16, 24, 32, .03);
+}
+
+.dnet-stat.is-off {
+    border-left-color: #c8ced2;
+}
+
+.dnet-stat.is-warn {
+    border-left-color: var(--warn);
+}
+
+.dnet-stat.is-err {
+    border-left-color: var(--err);
+}
+
+.dnet-stat > .s-tag {
+    flex: 0 0 auto;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    padding-right: 18px;
+    border-right: 1px solid var(--line-2);
+    font-size: 12px;
+    letter-spacing: .3px;
+    color: var(--muted);
+}
+
+.dnet-stat > .s-kpi {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: wrap;
+    row-gap: 9px;
+}
+
+.dnet-stat .kpi {
+    min-width: 0;
+    padding: 0 20px;
+    border-left: 1px solid var(--line-2);
+}
+
+.dnet-stat .kpi:first-child {
+    padding-left: 0;
+    border-left: none;
+}
+
+.dnet-stat .kpi .k {
+    display: block;
+    font-size: 11.5px;
+    letter-spacing: .3px;
+    color: var(--muted);
+}
+
+.dnet-stat .kpi .v {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dnet-stat .kpi .v.dim {
+    font-weight: 400;
+    color: var(--muted);
+}
+
+.dnet-stat .kpi .v.ok {
+    color: var(--ok);
+}
+
+.dnet-stat .kpi .v.warn {
+    color: var(--warn);
+}
+
+.dnet-stat .kpi .v.err {
+    color: var(--err);
+}
+
+.dnet-stat > .s-act {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+
+/* ---- 卡片内的小节标题 ---- */
+.dnet-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 0 8px;
+}
+
+.layui-card-body > .dnet-group:first-child {
+    padding-top: 4px;
+}
+
+.dnet-group > .t {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .6px;
+    color: var(--muted);
+}
+
+.dnet-group > .act {
+    margin-left: auto;
+}
+
+/* ---- 规则表格 ---- */
+.dnet-rules {
+    --rule-cols: 28px 130px 112px minmax(150px, 1.3fr) 112px 128px 150px minmax(120px, 1fr) 40px;
+}
+
+.dnet-rules-head,
+.dnet-rule-main {
+    display: grid;
+    grid-template-columns: var(--rule-cols);
+    gap: 8px;
+    align-items: center;
+}
+
+.dnet-rules-head {
+    min-height: 30px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .3px;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.dnet-rules-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.dnet-rule-main > input,
+.dnet-rule-main > select,
+.dnet-rule-main .dnet-cred-fields > input {
+    /* layui 文档流是 content-box，而配置页在 iframe 里、拿不到 .dnet-shell 的
+       border-box 兜底。不显式声明的话，width:100% 会在这之上再加左右 padding(18)
+       与边框(2)，整整多出 20px 顶进右邻列 —— 最右的「备注」会压住删除按钮。 */
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: 32px;
+    padding: 0 9px;
+    border: 1px solid var(--input-line);
+    border-radius: 3px;
+    background-color: #fff;
+    font: 13px/1 var(--font);
+    color: var(--text);
+    transition: border-color .15s, box-shadow .15s;
+}
+
+.dnet-rule-main > input:hover,
+.dnet-rule-main > select:hover,
+.dnet-rule-main .dnet-cred-fields > input:hover {
+    border-color: #c3cad0;
+}
+
+.dnet-rule-main > input:focus,
+.dnet-rule-main > select:focus,
+.dnet-rule-main .dnet-cred-fields > input:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px var(--brand-soft);
+    outline: none;
+}
+
+/* 原生下拉：去掉系统外观，右侧补一枚与 layui 同款的细线箭头 */
+.dnet-rule-main > select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 26px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 .8l4 4 4-4' fill='none' stroke='%238d949a' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 9px center;
+    cursor: pointer;
+}
+
+.dnet-rule-main > input[type="number"] {
+    -moz-appearance: textfield;
+}
+
+.dnet-rule-main > input[type="number"]::-webkit-outer-spin-button,
+.dnet-rule-main > input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.dnet-rule-exp,
+.dnet-rule-del {
+    appearance: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color .15s, background .15s, border-color .15s;
+}
+
+.dnet-rule-exp {
+    margin-left: 0;
+}
+
+.dnet-rule-exp > svg {
+    width: 10px;
+    height: 10px;
+    transition: transform .15s;
+}
+
+.dnet-rule-exp[aria-expanded="true"] > svg {
+    transform: rotate(90deg);
+}
+
+.dnet-rule-exp:hover {
+    color: var(--brand-ink);
+    background: var(--brand-soft);
+}
+
+.dnet-rule-del:hover {
+    color: var(--err);
+    border-color: #f0cdc8;
+    background: #fdf4f3;
+}
+
+/* 当前选中的那一行（与上方「配置」下拉联动）。
+   用 box-shadow 描边而不是 border/outline —— 两者都不占布局，不会把这一行的
+   列宽挤得与其他行错位。 */
+.dnet-rule.is-current > .dnet-rule-main {
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px var(--brand-line);
+}
+
+/* ---- 连通性 ---- */
+.dnet-conn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+/* 每条规则的流量统计（DPF 行列表新增列）：入/出各一个数值，
+   tabular-nums 让数字跳动时不抖动列宽 */
+.dnet-traffic {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dnet-traffic b {
+    font-weight: 500;
+    color: var(--text);
+}
+
+.dnet-conn > svg {
+    flex: 0 0 auto;
+    width: 11px;
+    height: 11px;
+}
+
+.dnet-conn > .meta {
+    font-size: 12px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dnet-conn.ok {
+    color: var(--ok);
+}
+
+.dnet-conn.warn {
+    color: var(--warn);
+}
+
+.dnet-conn.fail {
+    color: var(--err);
+}
+
+.dnet-conn.na {
+    color: var(--muted);
+}
+
+/* 展开面板里的「凭据来自系统设置」这一行 */
+.dnet-cred.ok {
+    color: var(--ok-ink);
+}
+
+.dnet-cred.warn {
+    color: var(--warn-ink);
+}
+
+/* ---- 行内展开：高级字段 ---- */
+.dnet-rule-adv {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 26px;
+    margin: 10px 0 2px;
+    padding: 13px 16px 14px;
+    background: #fafbfb;
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius);
+}
+
+.dnet-rule-adv[hidden] {
+    display: none;
+}
+
+.dnet-rule-adv .f {
+    display: grid;
+    grid-template-columns: 106px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+}
+
+.dnet-rule-adv .f > label {
+    font-size: 12.5px;
+    color: var(--text-2);
+    text-align: right;
+}
+
+.dnet-rule-adv .f > input {
+    /* 同上：iframe 内是 content-box，width:100% 必须配 border-box 才不会撑破格子 */
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: 32px;
+    padding: 0 9px;
+    border: 1px solid var(--input-line);
+    border-radius: 3px;
+    background: #fff;
+    font: 13px/1 var(--font);
+    color: var(--text);
+}
+
+.dnet-rule-adv .f > input:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px var(--brand-soft);
+    outline: none;
+}
+
+.dnet-rule-adv .f.wide {
+    grid-column: 1 / -1;
+}
+
+.dnet-rule-adv .note {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--muted);
+}
+
+/* ---- 表格下方的添加行 / 说明 ---- */
+.dnet-rule-add {
+    appearance: none;
+    margin: 12px 0 0;
+    padding: 5px 14px;
+    border: 1px solid var(--input-line);
+    border-radius: 3px;
+    background: #fff;
+    font: 12.5px/1.6 var(--font);
+    color: var(--brand-ink);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+}
+
+.dnet-rule-add:hover {
+    border-color: var(--brand);
+    background: var(--brand-soft);
+}
+
+.dnet-rules-hint {
+    margin: 10px 0 0;
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--muted);
+}
+
+/* ---- 卡片底部操作区 ---- */
+.dnet-card-foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--line-2);
+    border-radius: 0 0 var(--radius) var(--radius);
+    background: #fcfcfd;
+}
+
+.dnet-card-foot > .note {
+    margin-right: auto;
+    font-size: 12.5px;
+    color: var(--muted);
+}
+
+/* ==========================================================================
+   10. 状态总览卡片（对齐原型 .svc）
+   --------------------------------------------------------------------------
+   一屏看完各服务的启用与运行状态。整张卡片就是入口，所以用 <a> 承载，
+   并把默认链接样式清掉。徽标配色复用顶栏 .dnet-dot 的同一套语义色。
+   ========================================================================== */
+.dnet-svc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+    gap: 14px;
+}
+
+.dnet-svc {
+    display: block;
+    padding: 15px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+    box-shadow: 0 1px 2px rgba(16, 24, 32, .03);
+    color: inherit;
+    text-decoration: none;
+    transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+
+.dnet-svc:hover {
+    border-color: var(--brand-line);
+    box-shadow: 0 3px 10px rgba(16, 24, 32, .07);
+    transform: translateY(-1px);
+}
+
+.dnet-svc .h {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.dnet-svc .h b {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.dnet-svc .h .tag {
+    font-size: 11.5px;
+    color: var(--muted);
+}
+
+/* 状态徽标靠右，颜色由 .st-on / .st-warn / .st-err / .st-off 决定 */
+.dnet-svc .st {
+    margin-left: auto;
+    padding: 1px 8px;
+    border: 1px solid transparent;
+    border-radius: 20px;
+    font-size: 11.5px;
+    white-space: nowrap;
+}
+
+.dnet-svc.st-on .st {
+    color: var(--ok);
+    background: #eaf6f0;
+    border-color: #cfe9dc;
+}
+
+.dnet-svc.st-warn .st {
+    color: var(--warn);
+    background: #fdf5e5;
+    border-color: #f0e0bb;
+}
+
+.dnet-svc.st-err .st {
+    color: var(--err);
+    background: #fdeeec;
+    border-color: #f3d3ce;
+}
+
+.dnet-svc.st-off .st {
+    color: var(--muted);
+    background: #f2f3f4;
+    border-color: #e4e7e9;
+}
+
+.dnet-svc .d {
+    min-height: 34px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--muted);
+}
+
+.dnet-svc .f {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 11px;
+    padding-top: 9px;
+    border-top: 1px solid var(--line-2);
+    font-size: 12px;
+    color: var(--text-2);
+}
+
+.dnet-svc .f .m {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dnet-svc .f .go {
+    flex: none;
+    color: var(--brand);
+}
+
+.dnet-svc .f .go::after {
+    content: " →";
+}
+
+.dnet-svc:hover .f .go {
+    color: var(--brand-ink);
+}
+
+/* 读取中 / 读取失败时的占位块，横跨整行 */
+.dnet-svc-placeholder {
+    grid-column: 1 / -1;
+    padding: 26px;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+}
+
+.dnet-svc-placeholder.err {
+    border-color: #f3d3ce;
+    background: #fdeeec;
+    color: var(--err);
+}
+
+/* ==========================================================================
+   10.1 内嵌日志框（状态总览页底部）
+   --------------------------------------------------------------------------
+   与左侧导航的日志弹窗同源（/logs/count），只是常驻在总览页里。
+   最新的一条排最上面，所以列表本身不需要反向滚动等额外处理。
+   ========================================================================== */
+.dnet-logs {
+    margin-top: 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+    overflow: hidden;
+}
+
+.dnet-logs-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    background: #fafbfb;
+}
+
+.dnet-logs-head b {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.dnet-logs-count {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.dnet-logs-acts {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
+.dnet-logs-auto {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--text-2);
+    cursor: pointer;
+    user-select: none;
+}
+
+.dnet-logs-btn {
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--input-line);
+    border-radius: 3px;
+    background: #fff;
+    color: var(--text-2);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+}
+
+.dnet-logs-btn:hover {
+    border-color: var(--brand-line);
+    background: var(--brand-soft);
+    color: var(--brand);
+}
+
+.dnet-logs-btn.danger:hover {
+    border-color: #f3d3ce;
+    background: #fdeeec;
+    color: var(--err);
+}
+
+.dnet-logs-btn[disabled] {
+    opacity: .55;
+    cursor: default;
+}
+
+.dnet-log-list {
+    max-height: 340px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.dnet-log-hint {
+    padding: 26px;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+}
+
+.dnet-log-hint.err {
+    color: var(--err);
+}
+
+.dnet-log-row {
+    display: grid;
+    grid-template-columns: 152px 62px 72px minmax(0, 1fr);
+    gap: 10px;
+    align-items: baseline;
+    padding: 7px 14px;
+    font-size: 12.5px;
+}
+
+.dnet-log-row + .dnet-log-row {
+    border-top: 1px solid var(--line-2);
+}
+
+.dnet-log-row:hover {
+    background: #fafbfb;
+}
+
+.dnet-log-row .t {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+}
+
+/* 级别徽标：配色沿用 .dnet-svc .st 那套语义色 */
+.dnet-log-row .lv {
+    justify-self: start;
+    padding: 0 7px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 18px;
+}
+
+.dnet-log-row .lv-debug {
+    color: var(--muted);
+    background: #f2f3f4;
+    border-color: var(--line);
+}
+
+.dnet-log-row .lv-info {
+    color: var(--brand);
+    background: var(--brand-soft);
+    border-color: var(--brand-line);
+}
+
+.dnet-log-row .lv-warn {
+    color: var(--warn);
+    background: #fdf5e5;
+    border-color: #f0e0bb;
+}
+
+.dnet-log-row .lv-error {
+    color: var(--err);
+    background: #fdeeec;
+    border-color: #f3d3ce;
+}
+
+.dnet-log-row .lv-fatal {
+    color: #fff;
+    background: var(--err);
+    border-color: var(--err);
+    font-weight: 600;
+}
+
+.dnet-log-row .ty {
+    color: var(--text-2);
+}
+
+.dnet-log-row .ms {
+    color: var(--text);
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+/* ==========================================================================
+   11. 数据表格（对齐原型 .tbl）
+   ========================================================================== */
+.layui-table {
+    color: var(--text);
+    table-layout: fixed;
+}
+
+.layui-table thead tr {
+    background: #fafbfb;
+}
+
+.layui-table th {
+    background: #fafbfb;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .3px;
+    border-color: var(--line);
+}
+
+.layui-table td {
+    font-size: 13px;
+    border-color: var(--line-2);
+    padding: 8px 10px;
+    vertical-align: middle;
+}
+
+.layui-table tbody tr:hover {
+    background: #f7fafd;
+}
+
+/* ==========================================================================
+   12. 按钮
+   layui 默认按钮是青绿 #009688，跟品牌蓝放在一起是两套色系；
+   这里统一到 --brand，尺寸对齐原型 .btn（7px 18px / 13px / 3px）。
+   ========================================================================== */
+.layui-btn {
+    height: 33px;
+    line-height: 33px;
+    padding: 0 18px;
+    font-size: 13px;
+    font-weight: 400;
+    border-radius: 3px;
+    background-color: var(--brand);
+    border-color: transparent;
+}
+
+.layui-btn-primary {
+    border-color: var(--input-line);
+    color: var(--text-2);
+    background: #fff;
+}
+
+.layui-btn:hover {
+    background-color: var(--brand-ink);
+}
+
+/* 写在 .layui-btn:hover 之后，靠顺序压回白底（两者权重相同） */
+.layui-btn-primary:hover {
+    border-color: var(--brand);
+    color: var(--brand-ink);
+    background: #fff;
+}
+
+.layui-btn-normal {
+    background-color: var(--brand);
+}
+
+.layui-btn-danger {
+    background-color: var(--err);
+}
+
+.layui-btn-warm {
+    background-color: var(--warn);
+}
+
+.layui-btn-disabled,
+.layui-btn-disabled:hover {
+    background-color: #fbfbfb;
+    color: #c2c2c2;
+}
+
+/* 卡片外兜底的提交行（如 DPF 表单尾部的「立即提交 / 重置」）：
+   不给它一块底，两个按钮会直接浮在页底灰底上，看不出归属。 */
+.layui-container > form > .layui-form-item:has(button[type="submit"]),
+.layui-container > .layui-form-item:has(button[type="submit"]) {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 12px 20px;
+    margin: 14px 0 0;
+    box-shadow: 0 1px 2px rgba(16, 24, 32, .03);
+    text-align: right;
+}
+
+/* ==========================================================================
+   13. 系统设置 / Webhook 的提交行（容器是 .layui-fluid）
+   --------------------------------------------------------------------------
+   这两页原先由外壳的弹窗承载，提交按钮长在弹窗页脚里（外壳读 iframe 里的
+   input.value 再 POST）；改成 iframe 页内打开后按钮得自己排在表单尾部，
+   于是第 12 节那条兜底规则要跟着覆盖过来 —— 它只认 .layui-container，
+   而这两页用的是 .layui-fluid，盖不到。
+   ========================================================================== */
+.layui-fluid > form > .layui-form-item:has(button[type="submit"]),
+.layui-fluid > .layui-row > form > .layui-form-item:has(button[type="submit"]) {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 12px 20px;
+    margin: 14px 0 0;
+    box-shadow: 0 1px 2px rgba(16, 24, 32, .03);
+    text-align: right;
+}
+
+/* 相邻按钮之间留 9px：HTML 里 </button><button> 紧挨着写会粘成一块 */
+.layui-fluid > form > .layui-form-item:has(button[type="submit"]) .layui-btn + .layui-btn,
+.layui-fluid > .layui-row > form > .layui-form-item:has(button[type="submit"]) .layui-btn + .layui-btn {
+    margin-left: 9px;
+}
+
+/* ==========================================================================
+   14. 宽屏双列
+   端口转发 / Web 服务 / 证书这类「参数型」表单字段较多，单列会把每个输入框
+   拉成一条长带，既浪费横向空间也不容易一眼扫完。宽屏下排成两列更紧凑。
+   整行的内容（运行状态、textarea、提交按钮）用 :has() 自动撑满。
+   ========================================================================== */
+@media screen and (min-width: 1200px) {
+    .layui-card-body.dnet-fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 24px;
+        align-items: start;
+    }
+
+    .layui-card-body.dnet-fields::before,
+    .layui-card-body.dnet-fields::after {
+        display: none;
+        content: none;
+    }
+
+    .layui-card-body.dnet-fields > .layui-form-item {
+        grid-column: span 1;
+        min-width: 0;
+    }
+
+    .layui-card-body.dnet-fields > .dnet-col-full,
+    .layui-card-body.dnet-fields > .layui-form-item:has(.state),
+    .layui-card-body.dnet-fields > .layui-form-item:has(.layui-textarea),
+    .layui-card-body.dnet-fields > .layui-form-item:has(button[type="submit"]),
+    .layui-card-body.dnet-fields > hr {
+        grid-column: 1 / -1;
+    }
+
+    /* 两列后输入框不必再贴满整列，留出舒服的阅读宽度 */
+    .layui-card-body.dnet-fields > .layui-form-item > .layui-input-block {
+        max-width: 420px;
+    }
+
+    /* textarea 行与提交行永远整行铺开，不受上面的 420px 限制 */
+    .layui-card-body.dnet-fields > .layui-form-item:has(.layui-textarea) > .layui-input-block,
+    .layui-card-body.dnet-fields > .layui-form-item:has(button[type="submit"]) > .layui-input-block,
+    .layui-card-body.dnet-fields > [data-source]:not([hidden]) > .layui-form-item:has(.layui-textarea) > .layui-input-block,
+    .layui-card-body.dnet-fields > [data-source]:not([hidden]) > .layui-form-item:has(button[type="submit"]) > .layui-input-block,
+    .layui-card-body.dnet-fields > [data-source] > div:not(.layui-form-item) > .layui-form-item:has(.layui-textarea) > .layui-input-block {
+        max-width: none;
+    }
+
+    /* 有些页面的字段被包在中间容器里（证书页用 div[data-source] 切换
+       上传 / 本地路径 / ACME 三种来源，ACME 里还套了一层 #eab-fields）。
+       这种容器本身占满整行，内部再开两列，否则会出现「字段全挤在左半、
+       右半空着」的断档。
+       必须排除 [hidden]：display:grid 会盖掉 UA 的 [hidden]{display:none}，
+       被折叠的来源选择器会全部暴露出来。 */
+    .layui-card-body.dnet-fields > [data-source],
+    .layui-card-body.dnet-fields > [data-source] > div:not(.layui-form-item) {
+        grid-column: 1 / -1;
+    }
+
+    .layui-card-body.dnet-fields > [data-source]:not([hidden]),
+    .layui-card-body.dnet-fields > [data-source] > div:not(.layui-form-item):not([hidden]) {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 24px;
+        align-items: start;
+    }
+
+    .layui-card-body.dnet-fields > [data-source]:not([hidden]) > .layui-form-item,
+    .layui-card-body.dnet-fields > [data-source] > div:not(.layui-form-item) > .layui-form-item {
+        grid-column: span 1;
+        min-width: 0;
+    }
+
+    .layui-card-body.dnet-fields > [data-source]:not([hidden]) > .layui-form-item:has(.layui-textarea),
+    .layui-card-body.dnet-fields > [data-source] > div:not(.layui-form-item) > .layui-form-item:has(.layui-textarea) {
+        grid-column: 1 / -1;
+    }
+}
+
+/* ==========================================================================
+   15. 窄屏适配
+   ========================================================================== */
+
+/* --- 外壳：导航收进抽屉 --- */
+@media screen and (max-width: 820px) {
+    .dnet-sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        height: 100vh;
+        transform: translateX(-100%);
+        transition: transform .22s ease;
+        box-shadow: 2px 0 12px rgba(0, 0, 0, .12);
+        z-index: 30;
+    }
+
+    .dnet-shell.nav-open .dnet-sidebar {
+        transform: translateX(0);
+    }
+
+    .dnet-shell.nav-open .dnet-shade {
+        display: block;
+    }
+
+    .dnet-menu-btn {
+        display: inline-flex;
+    }
+
+    .dnet-strip-sub {
+        display: none;
+    }
+}
+
+@media screen and (max-width: 992px) {
+    /* 源站表格列多且语义靠表头承载，窄屏下改为整体横向滚动，
+       比堆叠成一串没有标签的输入框更好认 */
+    .layui-card-body:has(> .dnet-form-sources) {
+        overflow-x: auto;
+    }
+
+    .dnet-form-sources {
+        grid-template-columns: 150px minmax(150px, 1fr) 92px 84px 108px 168px 48px;
+        min-width: 880px;
+    }
+
+    /* 规则表格列多且每列都要能填，同样改成整体横向滚动 */
+    .dnet-rules-scroll {
+        overflow-x: auto;
+    }
+
+    .dnet-rules {
+        --rule-cols: 26px 118px 100px minmax(140px, 1.3fr) 100px 116px 130px minmax(110px, 1fr) 36px;
+        min-width: 1000px;
+    }
+}
+
+@media screen and (max-width: 767.98px) {
+    .layui-fluid {
+        padding: 14px 14px 32px;
+    }
+
+    .layui-card-body {
+        padding: 8px 14px 14px;
+    }
+
+    /* 服务卡片单列，避免 272px 的最小宽度在窄屏挤出横向滚动条 */
+    .dnet-svc-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* 日志行窄屏下拆两行：首行是级别 / 类型 / 时间，消息独占第二行。
+       四列并排的话消息只剩二三十个字符宽，读起来反而更累 */
+    .dnet-log-row {
+        grid-template-columns: auto auto minmax(0, 1fr);
+        grid-template-areas:
+            "lv ty t"
+            "ms ms ms";
+        gap: 6px 8px;
+    }
+
+    .dnet-log-row .lv {
+        grid-area: lv;
+    }
+
+    .dnet-log-row .ty {
+        grid-area: ty;
+    }
+
+    .dnet-log-row .t {
+        grid-area: t;
+        justify-self: end;
+    }
+
+    .dnet-log-row .ms {
+        grid-area: ms;
+    }
+
+    .dnet-logs-head {
+        flex-wrap: wrap;
+    }
+
+    .dnet-logs-acts {
+        gap: 8px;
+    }
+
+    .layui-card-header {
+        padding: 11px 14px;
+    }
+
+    /* 窄屏下表单标签改为「标签在上、控件在下」，避免标签把输入框挤没 */
+    .layui-form-label {
+        float: none;
+        display: block;
+        width: auto;
+        padding: 0 0 6px;
+        line-height: 20px;
+        text-align: left;
+        font-weight: 600;
+    }
+
+    .layui-input-block,
+    .layui-form-item .layui-input-inline {
+        float: none;
+        width: auto !important;
+        margin: 0 0 10px;
+        max-width: none;
+    }
+
+    .layui-form-item .layui-form-switch {
+        margin-top: 0;
+    }
+
+    .layui-form-item .layui-form-radio {
+        margin-top: 0;
+    }
+
+    /* 窄屏下说明文字独占一行，跟在控件后方会横向溢出 */
+    .layui-form-item .layui-input-inline + .layui-form-mid,
+    .layui-form-item > .layui-input-block + .layui-form-mid.layui-word-aux,
+    .layui-form-item > tip,
+    .layui-form-item > .tip {
+        float: none;
+        display: block;
+        width: auto;
+        margin: 0 0 10px;
+        padding: 0 0 0 2px !important;
+    }
+
+    /* 卡片底部操作区跟着改内缩 */
+    .layui-card-body > .layui-form-item:has(button[type="submit"]) {
+        margin: 14px -14px -14px;
+        padding: 12px 14px;
+    }
+
+    /* ip 地址获取 */
+    .dnet-form-sources .layui-input-inline {
+        margin-right: 0 !important;
+        margin-left: 0 !important;
+    }
+
+    /* 指标条：窄屏下标签不再竖线分隔，KPI 按需换行 */
+    .dnet-stat {
+        gap: 12px;
+        padding: 10px 14px;
+    }
+
+    .dnet-stat > .s-tag {
+        padding-right: 12px;
+    }
+
+    .dnet-stat .kpi {
+        padding: 0 14px;
+    }
+
+    .dnet-rule-adv {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .dnet-card-foot {
+        padding: 12px 14px;
+    }
+}
+
+/* ==========================================================================
+   16. 兼容：仍在使用旧 layui 后台骨架的页面（无 .dnet-shell）
+   ========================================================================== */
 .clear {
     clear: both;
 }
 
-.layui-layout-admin .layui-body {
-    position: relative;
+/* ==========================================================================
+   17. 主题层：工业仪表盘精修
+   --------------------------------------------------------------------------
+   这一节是**皮肤层**：只改表面、字体、层次、动效，绝不改任何栅格与几何。
+   第 1~16 节定义的是结构尺寸（170px 标签列、规则表的 --rule-cols、源站表格
+   的列宽、38px 控件高度…），那些数值是界面能用的前提，动一下就会错位。
+
+   之所以集中成一层而不是散回各节：① 视觉方向要能整体回退（删掉本节即还原）；
+   ② 结构规则和视觉规则混在一起之后，改配色时很容易顺手改到尺寸。
+
+   本节与第 1~16 节同优先级，靠"后出现的胜出"压在上面，因此只声明要覆盖的
+   属性，其余属性仍沿用上面的原值 —— 每一条都只写增量。
+   ========================================================================== */
+
+/* ==========================================================================
+   17.1 底纹、焦点、读数
+   ========================================================================== */
+
+/* ---- 工程网格底 ----
+   24px 网格 + 左上角一片极淡的品牌色晕，透明度压到 2% 上下：是"底纹"不是
+   "图案"，抬头看不见，低头才发现页面上有一层刻度。
+
+   铺在 body 上，不做 position:fixed 的独立装饰层 —— fixed 层在 iframe 里要
+   被外壳裁掉；在外壳里又会给移动端 .dnet-sidebar 的 position:fixed 制造新的
+   包含块，抽屉会错位。
+
+   选择器写成 html body（特指度 0,0,2）是为了压过各页面自带的
+   body{background:#f2f2f2} —— 那是 0,0,1，无论顺序如何都赢不了。 */
+html body {
+    background-color: var(--bg);
+    background-image:
+        radial-gradient(1100px 400px at 14% -8%, rgba(29, 107, 168, .075), transparent 72%),
+        linear-gradient(rgba(16, 32, 48, .022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(16, 32, 48, .022) 1px, transparent 1px);
+    background-size: 100% 100%, 24px 24px, 24px 24px;
+    background-position: 0 0, -1px -1px, -1px -1px;
+    background-repeat: no-repeat, repeat, repeat;
 }
+
+/* 外壳同一套底。class 选择器（0,1,1）压得过上面的 html body（0,0,2） */
+body.dnet-shell {
+    background-color: var(--bg);
+    background-image:
+        radial-gradient(1100px 400px at 14% -8%, rgba(29, 107, 168, .06), transparent 72%),
+        linear-gradient(rgba(16, 32, 48, .02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(16, 32, 48, .02) 1px, transparent 1px);
+    background-size: 100% 100%, 24px 24px, 24px 24px;
+}
+
+/* ---- 键盘焦点环 ----
+   文本控件例外：它们已经有 border + 光晕的聚焦态，再加一圈是两道描边。 */
+:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+.layui-input:focus-visible,
+.layui-textarea:focus-visible {
+    outline: none;
+}
+
+/* 蓝色按钮上不能用品牌色画焦点环（蓝压蓝等于没有），换浅色描边 */
+.layui-btn:focus-visible {
+    outline-color: var(--brand-line);
+}
+
+/* ---- 等宽读数 ----
+   数字一跳动，比例字体会让整行左右抖一下；tabular-nums 把每个数字锁进等宽的
+   格子里。凡是「会变的读数」都走这一条，包括表格里的数字列。 */
+.dnet-stat .kpi .v,
+.dnet-svc .f .m,
+.dnet-logs-count,
+.dnet-log-row .t,
+.layui-table td,
+.dnet-side-foot,
+.dnet-rules-head,
+.dnet-rule-main > input[type="number"] {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   17.2 外壳：导航 + 顶栏信号轨
+   ========================================================================== */
+
+.dnet-sidebar {
+    background: var(--side-bg);
+    border-right: 1px solid var(--line);
+}
+
+/* ---- 品牌区：加一枚信号铭牌 ----
+   三条递增的竖杠（信号强度）画在渐变小方块里。纯色块太素，加一道 145° 渐变
+   + 顶部内高光才有"实体铭牌"的分量。 */
+.dnet-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 15px 16px 13px;
+    border-bottom: 1px solid var(--line);
+}
+
+.dnet-brand > a {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: .01em;
+    color: #0d1720;
+}
+
+.dnet-brand > a::before {
+    content: "";
+    flex: 0 0 26px;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M5.5 18.5v-3.5M12 18.5V9.5M18.5 18.5V5.5'/%3E%3C/g%3E%3C/svg%3E"),
+        linear-gradient(145deg, #2a7cbd, #12507f);
+    background-repeat: no-repeat;
+    background-position: center, 0 0;
+    background-size: 15px 15px, cover;
+    box-shadow: 0 1px 3px rgba(18, 80, 127, .28), inset 0 1px 0 rgba(255, 255, 255, .28);
+}
+
+/* 副标题缩进到与 D-NET 文字左边缘对齐（26 的图标 + 9 的间距） */
+.dnet-brand small {
+    margin-top: 0;
+    padding-left: 35px;
+    font-size: 11px;
+    letter-spacing: .02em;
+    color: var(--muted);
+}
+
+/* ---- 导航分组标题 → 微标签 ---- */
+.dnet-nav-title {
+    padding: 14px 10px 6px;
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+}
+
+.dnet-nav-sep {
+    background: var(--line);
+}
+
+/* ---- 导航项：把"当前在哪"从色块改成刻度 ----
+   未激活时左侧导轨高度为 0，悬停长到 13px，激活长到 20px。比整块填充安静，
+   也更符合仪表盘的语言：位置由指针指示，而不是由高亮块指示。 */
+.dnet-nav-item {
+    padding: 8px 10px 8px 11px;
+    transition: background var(--dur-fast) var(--ease-out),
+                color var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-base) var(--ease-out);
+}
+
+.dnet-nav-item::before {
+    content: "";
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    width: 3px;
+    height: 0;
+    border-radius: 0 2px 2px 0;
+    background: var(--brand);
+    transform: translateY(-50%);
+    transition: height var(--dur-base) var(--ease-out);
+}
+
+.dnet-nav-item:hover::before {
+    height: 13px;
+}
+
+.dnet-nav-item:hover {
+    background: var(--side-hover);
+    color: var(--text);
+}
+
+.dnet-nav-item.active {
+    background: var(--brand-soft);
+    color: var(--brand-ink);
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--brand-line);
+}
+
+.dnet-nav-item.active::before {
+    height: 20px;
+}
+
+.dnet-nav-item.active .icon {
+    stroke-width: 1.9;
+}
+
+.dnet-nav-item.active .tag {
+    color: var(--brand-ink);
+    opacity: .7;
+}
+
+/* 右侧英文缩写当"设备码"读：等宽 + 拉字距 */
+.dnet-nav-item .tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .07em;
+    opacity: .8;
+    transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.dnet-nav-item:hover .tag {
+    opacity: 1;
+}
+
+/* ---- 顶栏：深色仪表边框（bezel）----
+   原来是整条铺满品牌蓝的色块。顶栏是"设备外壳"，不是"品牌广告牌"；改成
+   深墨蓝渐变、把品牌色收进底沿那条 2px 线里，分量反而更足。
+   border-bottom 在 border-box 下不撑高，--strip-h 的总高依旧。 */
+.dnet-topstrip {
+    background: linear-gradient(180deg, #15242f 0%, #0d1b25 100%);
+    border-bottom: 2px solid var(--brand);
+    color: #eef3f7;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+/* 运行指示灯：发光点而不是哑光点 */
+.dnet-topstrip .dnet-dot {
+    background: #58d69b;
+    box-shadow: 0 0 0 3px rgba(88, 214, 155, .2), 0 0 8px rgba(88, 214, 155, .55);
+    animation: dnet-pulse 2.4s var(--ease-in-out) infinite;
+}
+
+.dnet-topstrip .dnet-dot.off {
+    background: #8d99a3;
+    box-shadow: 0 0 0 3px rgba(141, 153, 163, .16);
+}
+
+.dnet-topstrip .dnet-dot.warn {
+    background: #f3c34d;
+    box-shadow: 0 0 0 3px rgba(243, 195, 77, .2), 0 0 8px rgba(243, 195, 77, .5);
+}
+
+.dnet-topstrip .dnet-dot.err {
+    background: #ff7b6b;
+    box-shadow: 0 0 0 3px rgba(255, 123, 107, .2), 0 0 8px rgba(255, 123, 107, .5);
+}
+
+.dnet-strip-name {
+    letter-spacing: .02em;
+}
+
+.dnet-strip-sub {
+    color: rgba(238, 243, 247, .6);
+    border-left-color: rgba(238, 243, 247, .18);
+}
+
+/* ---- 信号轨：顶栏唯一的读数 ----
+   五段 = 五个模块，颜色 = 该模块此刻的状态（数据来自 /api/overview 的
+   services[]，纯前端渲染，后端一行没改）。亮着的段每 4 秒扫过一道光，
+   错峰 350ms —— 看起来像数据正在设备里流动，一眼能确认"这是活的"。
+   全站两处琥珀色的用法之一，就是这里的告警段。 */
+.dnet-rail {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 10px;
+    padding-left: 11px;
+    border-left: 1px solid rgba(238, 243, 247, .14);
+}
+
+.dnet-rail .seg {
+    position: relative;
+    width: 18px;
+    height: 4px;
+    border-radius: 1px;
+    background: rgba(238, 243, 247, .2);
+    overflow: hidden;
+    transition: background var(--dur-base) var(--ease-out);
+}
+
+.dnet-rail .seg.is-on {
+    background: #3fb37c;
+}
+
+.dnet-rail .seg.is-warn {
+    background: #e0a72c;
+}
+
+.dnet-rail .seg.is-err {
+    background: #e0574a;
+}
+
+.dnet-rail .seg.is-on::after,
+.dnet-rail .seg.is-warn::after,
+.dnet-rail .seg.is-err::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .72), transparent);
+    transform: translateX(-100%);
+    animation: dnet-sweep 4s var(--ease-in-out) infinite;
+}
+
+.dnet-rail .seg:nth-child(2)::after {
+    animation-delay: .35s;
+}
+
+.dnet-rail .seg:nth-child(3)::after {
+    animation-delay: .7s;
+}
+
+.dnet-rail .seg:nth-child(4)::after {
+    animation-delay: 1.05s;
+}
+
+.dnet-rail .seg:nth-child(5)::after {
+    animation-delay: 1.4s;
+}
+
+@keyframes dnet-sweep {
+    0%, 62% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.dnet-strip-right > a {
+    color: rgba(238, 243, 247, .78);
+    border-radius: 4px;
+}
+
+.dnet-strip-right > a:hover {
+    background: rgba(255, 255, 255, .1);
+    color: #fff;
+}
+
+.dnet-strip-right .layui-nav .layui-nav-child {
+    box-shadow: var(--shadow-3);
+}
+
+/* 侧栏页脚：从 home.html 的内联样式搬过来，好让整套令牌统一管它 */
+.dnet-side-foot {
+    padding: 12px 16px 16px;
+    border-top: 1px solid var(--line);
+    font-size: 11px;
+    line-height: 1.75;
+    letter-spacing: .01em;
+    color: var(--muted);
+    background: linear-gradient(180deg, transparent, rgba(16, 32, 48, .022));
+}
+
+/* 窄屏：信号轨占 120px 以上，375px 宽的顶栏放不下（汉堡 + 灯 + 文案 + 退出） */
+@media screen and (max-width: 640px) {
+    .dnet-rail {
+        display: none;
+    }
+}
+
+/* ==========================================================================
+   17.3 卡片与面板
+   ========================================================================== */
+
+/* 卡片就是"面板"。左上角给一道 30px 的品牌色铭牌 —— 用绝对定位而不是
+   border-top：不占 1px 布局，相邻卡片的基线不会被顶偏（规则表曾经因为
+   1px 的 margin 出过"表头 45 / 数据行 46"的错位）。 */
+.layui-card {
+    position: relative;
+    background: var(--card);
+    box-shadow: var(--shadow-1);
+    transition: box-shadow var(--dur-base) var(--ease-out),
+                border-color var(--dur-base) var(--ease-out);
+}
+
+.layui-card::before {
+    content: "";
+    position: absolute;
+    left: -1px;
+    top: -1px;
+    width: 30px;
+    height: 2px;
+    background: var(--brand);
+    border-radius: 3px 0 0 0;
+    opacity: .85;
+}
+
+/* 已经有大标题头的卡片不再加铭牌，否则头上一行色条一行标题，太重 */
+.layui-card:has(> .layui-card-header)::before {
+    display: none;
+}
+
+.layui-card-header {
+    padding: 12px 20px;
+    font-size: 13px;
+    letter-spacing: .02em;
+    background: linear-gradient(180deg, #fbfcfd, #fff);
+    border-bottom: 1px solid var(--line);
+}
+
+/* ---- 页内 tab：从"网页标签"改成"波段选择器" ----
+   激活项底下不再是满格宽的 2px 线，而是一段跟着文字宽度的短线 —— 读起来
+   像刻度，而不是像一排按钮。悬停时短线先撑到 40%，指过去就有了预告。 */
+.dnet-tabs {
+    gap: 0;
+    margin: 0 0 18px;
+}
+
+.dnet-tabs button {
+    position: relative;
+    padding: 9px 16px 10px;
+    letter-spacing: .02em;
+    transition: color var(--dur-fast) var(--ease-out);
+}
+
+.dnet-tabs button::after {
+    content: "";
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: var(--brand);
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform var(--dur-base) var(--ease-out);
+}
+
+.dnet-tabs button:first-child::after {
+    left: 0;
+}
+
+.dnet-tabs button:hover::after {
+    transform: scaleX(.4);
+}
+
+.dnet-tabs button.on {
+    border-bottom-color: transparent;
+}
+
+.dnet-tabs button.on::after {
+    transform: scaleX(1);
+}
+
+/* ==========================================================================
+   17.4 表单
+   ========================================================================== */
 
 .layui-form-label {
-    width: 120px;
+    letter-spacing: .01em;
 }
 
-.layui-input-block {
-    margin-left: 150px;
+/* 输入框改成"凹槽"：一层内阴影，看起来是嵌进面板里的，而不是贴在上面。
+   聚焦时收成 3px 的柔光环（原来是同宽度的硬描边，偏网页）。 */
+.layui-input,
+.layui-textarea {
+    box-shadow: inset 0 1px 2px rgba(16, 32, 48, .045);
+    transition: border-color var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out);
 }
 
-.layui-form-item > .layui-input-block > tip {
-    display: inline-block;
-    margin-top: 10px;
-    line-height: 10px;
-    font-size: 10px;
-    color: #a29c9c;
+.layui-input:focus,
+.layui-textarea:focus {
+    box-shadow: inset 0 1px 2px rgba(16, 32, 48, .03), 0 0 0 3px var(--brand-soft);
 }
 
-.layui-form-item > .layui-input-inline > tip {
-    display: inline-block;
-    margin-top: 10px;
-    line-height: 10px;
-    font-size: 10px;
-    color: #a29c9c;
+/* 规则表格里的原生控件与上面的输入框保持一致 */
+.dnet-rule-main > input,
+.dnet-rule-adv .f > input,
+.layui-form-item .layui-input-inline > select {
+    box-shadow: inset 0 1px 2px rgba(16, 32, 48, .045);
 }
 
-.layui-card-body .layui-elem-field legend {
-    font-size: 18px;
+/* ---- 开关：尺寸不变（15px 方块是原型 .cb 的移植），只补悬停与按下的反馈 ---- */
+.layui-form-switch {
+    border-radius: 3px;
+    transition: border-color var(--dur-fast) var(--ease-out),
+                background-color var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out);
 }
 
-.layui-form-mid a {
-    color: #01aaed;
+.layui-form-switch:hover {
+    box-shadow: 0 0 0 3px var(--brand-soft);
 }
 
-.tip {
-    display: inline-block;
-    margin-top: 10px;
-    margin-left: 150px;
-    line-height: 10px;
-    font-size: 10px;
-    /*color: #a29c9c;*/
+.layui-form-onswitch {
+    box-shadow: 0 1px 2px rgba(18, 80, 127, .3), inset 0 1px 0 rgba(255, 255, 255, .25);
 }
 
-.tip a {
-    color: #01aaed;
+/* 下拉面板统一到三级阴影 */
+.layui-form-select dl {
+    box-shadow: var(--shadow-3);
+}
+
+/* ==========================================================================
+   17.5 表格 / 指标条 / 规则表
+   ========================================================================== */
+
+/* 数据表格：表头压深一档、发丝线更实，行 hover 时左侧浮出一道刻度。
+   刻度用 inset 阴影实现 —— 不占布局，不会把列宽挤动。 */
+.layui-table thead tr,
+.layui-table th {
+    background: #f4f7f9;
+}
+
+.layui-table th {
+    letter-spacing: .05em;
+    border-bottom: 1px solid var(--line);
+}
+
+.layui-table tbody tr {
+    transition: background var(--dur-fast) var(--ease-out);
+}
+
+.layui-table tbody tr:hover {
+    background: var(--brand-soft);
+}
+
+.layui-table tbody tr:hover > td:first-child {
+    box-shadow: inset 2px 0 0 var(--brand);
+}
+
+/* ---- 指标条（DPF 顶部）：读数升一档，标签降一档，层级一眼分明 ---- */
+.dnet-stat {
+    background: linear-gradient(180deg, #fff, #fcfdfe);
+    box-shadow: var(--shadow-1);
+}
+
+.dnet-stat > .s-tag {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.dnet-stat .kpi .k {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.dnet-stat .kpi .v {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+}
+
+/* ---- 规则表：表头改微标签，分隔线用 box-shadow 画（零布局影响） ---- */
+.dnet-rules-head {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    box-shadow: 0 1px 0 var(--line);
+}
+
+.dnet-rule-main > input[type="number"] {
+    font-family: var(--mono);
+}
+
+/* 状态格（DPF 的连通性、DDNS 的解析状态）本质是个读数 */
+.dnet-conn {
+    font-variant-numeric: tabular-nums;
+}
+
+.dnet-conn.ok {
+    color: var(--ok-ink);
+}
+
+.dnet-conn.warn {
+    color: var(--warn-ink);
+}
+
+.dnet-conn.fail {
+    color: var(--err-ink);
+}
+
+/* 展开抽屉：底色再压一档，与主体拉开层次 */
+.dnet-rule-adv {
+    background: #f7f9fb;
+    border-color: var(--line);
+    box-shadow: inset 0 1px 3px rgba(16, 32, 48, .03);
+}
+
+/* 当前选中的规则行（与上方「配置」下拉联动）。
+   用品牌色而不是琥珀色 —— 琥珀在这个界面里已经代表「告警」，同一个颜色背
+   两种意思会把状态读乱；而且这行的来源本来就是那个品牌蓝的「配置」下拉，
+   用同一个色更顺。 */
+.dnet-rule.is-current > .dnet-rule-main {
+    box-shadow: inset 0 0 0 1px var(--brand-line);
+    background: var(--brand-soft);
+    border-radius: 3px;
+}
+
+/* ==========================================================================
+   17.6 状态总览：读数式服务卡片 + 日志框
+   ========================================================================== */
+
+/* ---- 服务卡片 ----
+   左边一道状态导轨（与 DPF 指标条同一种语言），hover 抬起 2px。 */
+.dnet-svc {
+    position: relative;
+    padding: 15px 16px 14px 18px;
+    box-shadow: var(--shadow-1);
+    transition: transform var(--dur-base) var(--ease-out),
+                box-shadow var(--dur-base) var(--ease-out),
+                border-color var(--dur-base) var(--ease-out);
+}
+
+.dnet-svc::before {
+    content: "";
+    position: absolute;
+    left: -1px;
+    top: 10px;
+    bottom: 10px;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+    background: var(--line);
+    transition: background var(--dur-base) var(--ease-out);
+}
+
+.dnet-svc.st-on::before {
+    background: var(--ok);
+}
+
+.dnet-svc.st-warn::before {
+    background: var(--warn);
+}
+
+.dnet-svc.st-err::before {
+    background: var(--err);
+}
+
+.dnet-svc.st-off::before {
+    background: #c3ccd3;
+}
+
+.dnet-svc:hover {
+    border-color: var(--brand-line);
+    box-shadow: var(--shadow-2);
+    transform: translateY(-2px);
+}
+
+/* 短名（DCDN / DDNS …）是"设备码"，走等宽并拉字距 */
+.dnet-svc .h b {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .06em;
+}
+
+/* 状态徽标加一枚同色小圆点：不只用颜色表达状态（色盲也能分辨） */
+.dnet-svc .st {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    font-size: 11px;
+    letter-spacing: .02em;
+}
+
+.dnet-svc .st::before {
+    content: "";
+    flex: 0 0 5px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+/* 徽标文字用 -ink 档：压在 -soft 底上实测 ≥5:1（原来的 --ok/--warn/--err
+   直接当文字色用，在浅底上只有 3.5~3.9:1） */
+.dnet-svc.st-on .st {
+    color: var(--ok-ink);
+    background: var(--ok-soft);
+    border-color: var(--ok-line);
+}
+
+.dnet-svc.st-warn .st {
+    color: var(--warn-ink);
+    background: var(--warn-soft);
+    border-color: var(--warn-line);
+}
+
+.dnet-svc.st-err .st {
+    color: var(--err-ink);
+    background: var(--err-soft);
+    border-color: var(--err-line);
+}
+
+.dnet-svc.st-off .st {
+    color: var(--muted);
+    background: #eef1f3;
+    border-color: var(--line);
+}
+
+/* 底部那行的数字放大成主读数："2 个域名" → 一个 15px 的等宽 2 + 小字单位 */
+.dnet-svc .f .m .num {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    color: var(--text);
+    margin-right: 3px;
+}
+
+/* 进入箭头：hover 时向右推进 3px —— "这一下点得动"的即时反馈 */
+.dnet-svc .f .go {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    transition: color var(--dur-fast) var(--ease-out),
+                transform var(--dur-base) var(--ease-out);
+}
+
+.dnet-svc .f .go::after {
+    content: "→";
+}
+
+.dnet-svc:hover .f .go {
+    color: var(--brand-ink);
+    transform: translateX(3px);
+}
+
+/* ---- 内嵌日志框 ---- */
+.dnet-logs {
+    position: relative;
+    box-shadow: var(--shadow-1);
+}
+
+.dnet-logs::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 30px;
+    height: 2px;
+    background: var(--brand);
+    border-radius: 3px 0 0 0;
+    opacity: .85;
+}
+
+.dnet-logs-head {
+    background: linear-gradient(180deg, #f8fafb, #f2f6f8);
+    border-bottom: 1px solid var(--line);
+}
+
+.dnet-logs-head b {
+    font-size: 12.5px;
+    letter-spacing: .04em;
+}
+
+.dnet-logs-count {
+    font-size: 11.5px;
+}
+
+.dnet-logs-btn {
+    font-size: 11.5px;
+    letter-spacing: .02em;
+    transition: border-color var(--dur-fast) var(--ease-out),
+                color var(--dur-fast) var(--ease-out),
+                background var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.dnet-logs-btn:hover {
+    box-shadow: var(--shadow-1);
+}
+
+/* 「自动刷新」开着的时候给一枚琥珀色的"录制中"指示点 ——
+   这是全站唯一用到强调色的地方，因为它确实在表达一件别处没有的事：
+   这块内容此刻是活的、在持续流入。关掉就退回灰点。 */
+.dnet-logs-auto::before {
+    content: "";
+    flex: 0 0 5px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #c3ccd3;
+    transition: background var(--dur-base) var(--ease-out),
+                box-shadow var(--dur-base) var(--ease-out);
+}
+
+.dnet-logs-auto:has(input:checked) {
+    color: var(--accent-ink);
+}
+
+.dnet-logs-auto:has(input:checked)::before {
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+    animation: dnet-pulse 2.4s var(--ease-in-out) infinite;
+}
+
+/* 日志行：hover 时左沿浮出一道刻度。
+   注意 ::before 必须绝对定位 —— 这个元素是 grid 容器，静态定位的伪元素
+   会直接占掉一格，把时间戳挤到第二列去。 */
+.dnet-log-row {
+    position: relative;
+    padding-left: 16px;
+    transition: background var(--dur-fast) var(--ease-out);
+}
+
+.dnet-log-row::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: transparent;
+    transition: background var(--dur-fast) var(--ease-out);
+}
+
+.dnet-log-row:hover {
+    background: #f7fafc;
+}
+
+.dnet-log-row:hover::before {
+    background: var(--brand);
+}
+
+.dnet-log-row .t {
+    font-size: 11.5px;
+    letter-spacing: -.01em;
+}
+
+.dnet-log-row .lv {
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+/* 级别徽标同样换成 -ink / -soft 档 */
+.dnet-log-row .lv-info {
+    color: var(--brand-ink);
+    background: var(--brand-soft);
+    border-color: var(--brand-line);
+}
+
+.dnet-log-row .lv-warn {
+    color: var(--warn-ink);
+    background: var(--warn-soft);
+    border-color: var(--warn-line);
+}
+
+.dnet-log-row .lv-error {
+    color: var(--err-ink);
+    background: var(--err-soft);
+    border-color: var(--err-line);
+}
+
+.dnet-log-row .ty {
+    letter-spacing: .02em;
+}
+
+/* ==========================================================================
+   17.7 按钮
+   ========================================================================== */
+
+.layui-btn {
+    font-weight: 500;
+    letter-spacing: .02em;
+    box-shadow: 0 1px 2px rgba(18, 60, 96, .22), inset 0 1px 0 rgba(255, 255, 255, .16);
+    transition: background-color var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out),
+                color var(--dur-fast) var(--ease-out);
+}
+
+.layui-btn:hover {
+    box-shadow: 0 2px 7px rgba(18, 60, 96, .26), inset 0 1px 0 rgba(255, 255, 255, .18);
+}
+
+.layui-btn:active {
+    box-shadow: inset 0 2px 5px rgba(6, 26, 44, .3);
+}
+
+/* 次级按钮是白底，那道内高光看不见，只留一点点投影 */
+.layui-btn-primary,
+.layui-btn-primary:hover {
+    box-shadow: 0 1px 2px rgba(16, 32, 48, .05);
+}
+
+.layui-btn-primary:active {
+    box-shadow: inset 0 2px 4px rgba(16, 32, 48, .1);
+}
+
+/* ==========================================================================
+   17.8 入场编排
+   --------------------------------------------------------------------------
+   一次编排好的入场，胜过一堆零散微交互。外壳自上而下落下；页内按
+   描述句 → tab → 卡片 / 卡片组的顺序错峰（60~110ms 一组）。
+   全部包在 prefers-reduced-motion: no-preference 里，减弱动效时一条不跑。
+   ========================================================================== */
+
+@keyframes dnet-rise {
+    from {
+        opacity: 0;
+        transform: translateY(9px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    /* ---- 外壳：品牌 → 8 个导航项 → 页脚，40ms 一档 ---- */
+    .dnet-brand,
+    .dnet-side-foot,
+    .dnet-topstrip {
+        animation: dnet-rise var(--dur-slow) var(--ease-out) both;
+    }
+
+    .dnet-nav > a {
+        animation: dnet-rise var(--dur-slow) var(--ease-out) both;
+    }
+
+    .dnet-nav > a:nth-of-type(1) { animation-delay: 40ms; }
+    .dnet-nav > a:nth-of-type(2) { animation-delay: 80ms; }
+    .dnet-nav > a:nth-of-type(3) { animation-delay: 120ms; }
+    .dnet-nav > a:nth-of-type(4) { animation-delay: 160ms; }
+    .dnet-nav > a:nth-of-type(5) { animation-delay: 200ms; }
+    .dnet-nav > a:nth-of-type(6) { animation-delay: 240ms; }
+    .dnet-nav > a:nth-of-type(7) { animation-delay: 280ms; }
+    .dnet-nav > a:nth-of-type(8) { animation-delay: 320ms; }
+    .dnet-nav > a:nth-of-type(9) { animation-delay: 360ms; }
+
+    .dnet-side-foot {
+        animation-delay: 200ms;
+    }
+
+    /* ---- 页内：描述句 → tab / 指标条 → 卡片 → 日志框 ---- */
+    .page-desc,
+    .dnet-tabs,
+    .dnet-stat,
+    .layui-card,
+    .dnet-logs {
+        animation: dnet-rise var(--dur-base) var(--ease-out) both;
+    }
+
+    .dnet-tabs,
+    .dnet-stat {
+        animation-delay: 50ms;
+    }
+
+    .layui-card {
+        animation-delay: 90ms;
+    }
+
+    /* 同层的第 2、3、4 张卡片依次延后 —— 用兄弟选择器链而不是 nth-of-type：
+       卡片的标签不固定（div / section 混用），按标签数会数错。 */
+    .layui-card ~ .layui-card {
+        animation-delay: 150ms;
+    }
+
+    .layui-card ~ .layui-card ~ .layui-card {
+        animation-delay: 210ms;
+    }
+
+    .layui-card ~ .layui-card ~ .layui-card ~ .layui-card {
+        animation-delay: 270ms;
+    }
+
+    .dnet-logs {
+        animation-delay: 110ms;
+    }
+
+    /* ---- 服务卡片逐张落下（注意是卡片自己动，不是外层 grid —— grid 一动，
+         整块一起位移，就看不出是五张卡了） ---- */
+    .dnet-svc {
+        animation: dnet-rise var(--dur-base) var(--ease-out) both;
+    }
+
+    .dnet-svc:nth-child(1) { animation-delay: 40ms; }
+    .dnet-svc:nth-child(2) { animation-delay: 95ms; }
+    .dnet-svc:nth-child(3) { animation-delay: 150ms; }
+    .dnet-svc:nth-child(4) { animation-delay: 205ms; }
+    .dnet-svc:nth-child(5) { animation-delay: 260ms; }
+}
+
+/* ==========================================================================
+   17.9 窄屏补充
+   ========================================================================== */
+@media screen and (max-width: 820px) {
+    /* 抽屉是浮在内容之上的，阴影要够重才读得出来 */
+    .dnet-sidebar {
+        box-shadow: 4px 0 26px rgba(16, 32, 48, .18);
+    }
 }
 
 @media screen and (max-width: 767.98px) {
-    .layui-layout-left {
-        left: 0px;
+    .layui-card::before,
+    .dnet-logs::before {
+        width: 24px;
     }
 
-    .layui-logo {
-        left: 50% !important;
-        margin-left: -50px;
-        display: inline-block !important;
+    .dnet-svc .f .m .num {
+        font-size: 14px;
     }
-
-    .ws-nav-show .ws-header-menu .layui-nav {
-        position: fixed;
-        top: 61px;
-        left: 0;
-        width: 100%;
-        text-align: center;
-        transition: transform 0.3s ease;
-        transform: translateX(0);
-        z-index: 1003;
-        height: 60px;
-        box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 3px;
-        border-radius: 0px;
-        background: #2f363c !important;
-    }
-
-    .ws-header-menu .layui-nav {
-        position: fixed;
-        top: 61px;
-        left: 0;
-        width: 100%;
-        text-align: center;
-        transition: transform 0.3s ease;
-        transform: translateX(-100%);
-        z-index: 1003;
-        height: 60px;
-        box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 3px;
-        border-radius: 0px;
-        background: #2f363c !important;
-    }
-
-    .ws-nav-show .layui-nav .layui-nav-item a:hover, .layui-layout-left .layui-this a {
-        color: #fff;
-        text-decoration: none;
-    }
-
-    .ws-nav-show .layui-nav .layui-hide-xs {
-        display: inline-block !important;
-    }
-
-    .ws-nav-show .ws-shade {
-        content: "";
-        position: fixed;
-        top: 0px;
-        bottom: 0px;
-        left: 0px;
-        right: 0px;
-        background-color: rgba(0, 0, 0, 0.7);
-        z-index: 999;
-    }
-
-    /* ip 地址获取 */
-    .dnet-form-sources .layui-form-label {
-        width: auto !important;
-        display: none;
-    }
-
-    .dnet-form-sources .layui-input-inline {
-        margin-right: 0px !important;
-        margin-left: 0px;
-    }
-
-    .dnet-form-sources .dnet-form-type {
-        width: auto !important;;
-    }
-
-    .dnet-form-sources .dnet-form-value {
-        width: auto !important;;
-    }
-
-    .dnet-form-sources .dnet-form-priority {
-        width: auto !important;;
-    }
-
-    .dnet-form-sources .dnet-form-operation {
-        width: auto !important;;
-    }
-
 }
 
-.layui-logo a {
-    color: #fff;
+/* ==========================================================================
+   17.10 打印 / 导出为 PDF
+   --------------------------------------------------------------------------
+   入场动效用的是 animation-fill-mode: both —— 延迟期内元素停在 opacity:0。
+   打印或导出 PDF 时动画根本不跑，页面就会是一张白纸。这里直接关掉全部动效，
+   让内容回到它本来的样子。（截图工具同理：截图前把动效关掉再截。）
+   ========================================================================== */
+@media print {
+    *,
+    *::before,
+    *::after {
+        animation: none !important;
+        transition: none !important;
+        opacity: 1 !important;
+        transform: none !important;
+    }
 }
 
-/* 底部区域样式 */
-.layui-footer .layui-container > div {
-    margin: 0;
+/* ==========================================================================
+   18. 配置列表：dcdn / ddns / webservice 收进同一套行列表
+   --------------------------------------------------------------------------
+   第 9 节那套 .dnet-rules 是给端口转发（DPF）写的 8 列固定模板。现在动态 CDN、
+   动态 DNS、Web 服务也放弃「配置下拉 + 大表单 / 分页签」，改成同一种行列表 ——
+   一条配置就是一行，主字段行内直接改，高级项点箭头展开。三页列数不同（8 / 7 / 7），
+   所以把列模板做成挂在 .dnet-rules 上的变量，按页覆写。
+
+   这一节只做三件事：加列模板、加新部件（只读单元格 / 展开面板里的下拉 / 子列表）、
+   补窄屏。1~16 节那些结构尺寸一个不动。
+   ========================================================================== */
+
+/* ---- 18.1 各页列模板 ----
+   每一行的格子数与下面的 --rule-cols 段数必须一致，多一个少一个都会让末尾的
+   删除按钮跑到第二行去 —— 改列的时候两边一起改。 */
+.dnet-rules.rules-dws {
+    --rule-cols: 28px 128px minmax(160px, 1.35fr) 108px minmax(160px, 1.35fr) 116px minmax(120px, 1fr) 40px;
 }
 
-.layui-footer p {
-    margin: 5px 0;
-    font-size: 14px;
-    color: #666;
+.dnet-rules.rules-ddns {
+    --rule-cols: 28px minmax(170px, 1.5fr) 138px 116px 92px 148px minmax(120px, 1fr) 40px;
 }
 
-.layui-footer a {
-    color: #1e9fff;
+.dnet-rules.rules-dcdn {
+    --rule-cols: 28px minmax(170px, 1.5fr) 138px 116px 84px minmax(120px, 1fr) 40px;
+}
+
+/* 系统设置 → DNS 服务商：字段数随服务商变（Cloudflare 只有 Token、NameSilo
+   只有 Key、阿里云两个都有）。所以两个输入框放同一个格子里用 flex 排，
+   缺一个也不会让后面的删除按钮挪位 —— 列数始终是 3 */
+.dnet-rules.rules-dnsc {
+    --rule-cols: minmax(170px, 1.2fr) minmax(320px, 2.6fr) 40px;
+}
+
+.dnet-cred-fields {
+    display: flex;
+    gap: 8px;
+    min-width: 0;
+}
+
+.dnet-cred-fields > input {
+    flex: 1 1 0;
+}
+
+/* ---- 18.2 只读单元格 ----
+   列表里有些格子是「算出来的」而不是填出来的：CDN 的源站条数、DNS 的记录类型、
+   Web 服务的运行状态。它们和输入框同高同基线，但不可编辑，视觉上要压一档，
+   否则整行看起来全是可填的。 */
+.dnet-rule-main > .dnet-cell {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 32px;
+    padding: 0 2px;
+    font-size: 12.5px;
+    color: var(--text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dnet-rule-main > .dnet-cell.is-dim {
+    color: var(--muted);
+}
+
+/* 读数里的数字拎出来加粗、走等宽 —— 和总览页服务卡片的 .num 同一种语言 */
+.dnet-rule-main > .dnet-cell .num {
+    margin-right: 2px;
+    font-family: var(--mono);
+    font-weight: 700;
+    color: var(--text);
+}
+
+/* 记录类型这种「一组小标签」用等宽字母，A / AAAA / TXT 一眼能分开 */
+.dnet-rule-main > .dnet-cell .tag {
+    padding: 1px 5px;
+    border: 1px solid var(--brand-line);
+    border-radius: 2px;
+    background: var(--brand-soft);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .02em;
+    color: var(--brand-ink);
+}
+
+.dnet-rule-main > .dnet-cell .tag + .tag {
+    margin-left: 4px;
+}
+
+/* ---- 18.3 展开面板里的下拉 ----
+   第 9 节只给 .f > input 写了样式，下拉没跟上，于是展开后同一格里 input 是浅槽、
+   select 还是系统外观，看着像两个不相干的控件。这里补齐，并配一枚同款细线箭头。 */
+.dnet-rule-adv .f > select {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: 32px;
+    padding: 0 26px 0 9px;
+    border: 1px solid var(--input-line);
+    border-radius: 3px;
+    background-color: #fff;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 .8l4 4 4-4' fill='none' stroke='%236a737c' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 9px center;
+    font: 13px/1 var(--font);
+    color: var(--text);
+    box-shadow: inset 0 1px 2px rgba(16, 32, 48, .045);
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+}
+
+.dnet-rule-adv .f > select:focus {
+    border-color: var(--brand);
+    box-shadow: inset 0 1px 2px rgba(16, 32, 48, .03), 0 0 0 3px var(--brand-soft);
+    outline: none;
+}
+
+/* layui 的开关把原 input 藏起来、在后面插一个 div.layui-form-switch。
+   那个 div 是 .f 的第二个可见子元素，会落到第二列并默认拉满整列宽 ——
+   一个 15px 的方勾选框被拉成 300px，看着就坏了。钉回自身宽度、靠左。
+   还必须把第 7 节给它写的 margin-top:11px 清掉：那是为 layui 表单行（标签
+   20px 行高，勾选框得往下挪一点才对齐）准备的，放进 .f 网格里会把它从
+   垂直居中顶下去 11px，和左边的标签、右边的下拉不在一条线上。 */
+.dnet-rule-adv .f > .layui-form-switch {
+    justify-self: start;
+    margin-top: 0;
+    flex: 0 0 auto;
+}
+
+/* 条件禁用（双栈模式的监听 IP、测速服务的目标地址）要说清楚是「不可填」，
+   否则跟可填的格子长得一样，用户会以为界面坏了。 */
+.dnet-rule-main > input:disabled,
+.dnet-rule-adv .f > input:disabled,
+.dnet-rule-adv .f > select:disabled {
+    background-color: #f6f8f9;
+    color: var(--muted);
+    cursor: not-allowed;
+}
+
+/* ---- 18.4 子列表（CDN 源站 / DNS 记录）----
+   展开面板里的第二层。沿用主表的视觉语言：同一种网格、同一种表头、同一种行距，
+   只是每一档尺寸都收小一号，读起来才分得清层级。 */
+
+/* 用 hidden 属性做条件显示的元素必须显式写 display:none。
+   本节的 .f / .dnet-sub 都是 display:grid，作者样式会盖掉浏览器给 [hidden]
+   的默认 display:none —— 不补这一条，JS 里设了 hidden 也藏不住，
+   「只在反向代理下才出现的字段」会一直挂在面板里。 */
+.dnet-rule-adv .f[hidden],
+.dnet-rule-adv .tip-line[hidden],
+.dnet-sub[hidden],
+.dnet-sub-row[hidden],
+.dnet-sub-grid[hidden] {
+    display: none;
+}
+.dnet-sub {
+    grid-column: 1 / -1;
+    min-width: 0;
+    margin-top: 2px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+}
+
+.dnet-sub-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 7px;
+}
+
+.dnet-sub-head > .t {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.dnet-sub-head > .act {
+    margin-left: auto;
+}
+
+.dnet-sub-scroll {
+    min-width: 0;
+    overflow-x: auto;
+}
+
+.dnet-sub-grid {
+    --sub-cols: repeat(4, minmax(0, 1fr));
+}
+
+/* CDN 源站：源站类型 / 源站值 / 优先级 / 权重 / 协议 / HTTP 端口 / HTTPS 端口 /
+   IPv6 正则 / 删除。「源站类型」给到 170px 是因为最长的一项是「动态 IPv4：命令获取」
+   （12.5px 下约 137px + 左右内边距 32px）；正则单开一列而不是塞进「值」格里，
+   这样每列一格、表头能直接对上，不用为某一种类型做特殊排版。 */
+.dnet-sub.src .dnet-sub-grid {
+    --sub-cols: 170px minmax(130px, 1.6fr) 74px 56px 88px 70px 70px 112px 26px;
+}
+
+/* 取值方式那一列要放得下最长的一项「动态 IPv6：接口获取」（12.5px 下约 137px
+   字宽 + 左 8 右 24 的内边距），166px 会把尾字切掉，给到 186px。多出来的宽度
+   从「值」那一列拿 —— 它是 1.8fr，最不缺空间。 */
+.dnet-sub.rec .dnet-sub-grid {
+    --sub-cols: 88px 186px minmax(160px, 1.8fr) 136px 26px;
+}
+
+.dnet-sub-head-row,
+.dnet-sub-row {
+    display: grid;
+    grid-template-columns: var(--sub-cols);
+    gap: 6px;
+    align-items: center;
+}
+
+.dnet-sub-head-row {
+    min-height: 24px;
+    margin-bottom: 5px;
+    font-size: 11px;
+    letter-spacing: .06em;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.dnet-sub-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+/* 用后代选择器而不是 > ：子行的「值」那一格是个容器（容器里可能是 input，
+   也可能随取值方式换成网卡下拉），控制件是它的子元素而不是网格项本身。
+   写成 > 的话这些控件完全没有样式，会退回浏览器默认外观。 */
+.dnet-sub-row input,
+.dnet-sub-row select {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: 30px;
+    padding: 0 8px;
+    border: 1px solid var(--input-line);
+    border-radius: 3px;
+    background-color: #fff;
+    font: 12.5px/1 var(--font);
+    color: var(--text);
+    box-shadow: inset 0 1px 2px rgba(16, 32, 48, .045);
+    transition: border-color var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.dnet-sub-row input:focus,
+.dnet-sub-row select:focus {
+    border-color: var(--brand);
+    box-shadow: inset 0 1px 2px rgba(16, 32, 48, .03), 0 0 0 2px var(--brand-soft);
+    outline: none;
+}
+
+.dnet-sub-row select {
+    padding-right: 24px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 .8l4 4 4-4' fill='none' stroke='%236a737c' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+}
+
+/* 「值」那一格的容器：本身只是一个网格项，不参与绘制 */
+.dnet-sub-row > .cell-value {
+    min-width: 0;
+}
+
+/* 该格当前没有意义时淡掉。DDNS 的「取值方式/正则」是被 CNAME 这类类型隐掉的，
+   只做视觉提示；DCDN 的端口列是真 disabled（协议 + 服务商共同决定），
+   靠的就是这条规则把禁用态画出来。 */
+.dnet-sub-row [disabled] {
+    background-color: #f6f8f9;
+    color: var(--muted);
+    cursor: not-allowed;
+}
+
+.dnet-sub-del {
+    appearance: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color .15s, background .15s, border-color .15s;
+}
+
+.dnet-sub-del > svg {
+    width: 10px;
+    height: 10px;
+}
+
+.dnet-sub-del:hover {
+    color: var(--err);
+    border-color: #f0cdc8;
+    background: #fdf4f3;
+}
+
+.dnet-sub-add {
+    appearance: none;
+    margin-top: 7px;
+    padding: 4px 12px;
+    border: 1px solid var(--input-line);
+    border-radius: 3px;
+    background: #fff;
+    font: 12px/1.6 var(--font);
+    color: var(--brand-ink);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+}
+
+.dnet-sub-add:hover {
+    border-color: var(--brand);
+    background: var(--brand-soft);
+}
+
+/* 上面那条 margin-top:7px 是给「按钮单独跟在列表下面」那种排布留的呼吸。
+   放进 .dnet-sub-head 的 .act 里（标题右侧）时，它会被这 7px 从 flex 居中
+   线上顶下去，和左边的小标题错开半行。 */
+.dnet-sub-head > .act > .dnet-sub-add {
+    margin-top: 0;
+}
+
+/* 网卡名 + 地址：下拉里两者都显示，但格子里只留网卡名 */
+.dnet-sub-row > .pair {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 30px;
+    padding: 0 2px;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 展开面板里的帮助链接与说明，跟主表下方的 .dnet-rules-hint 同一档。
+   必须显式 grid-column: 2 —— .f 是两列网格，说明文字作为第三个子元素
+   默认会掉到第二行第一列（标签那一列）去。 */
+.dnet-rule-adv .f > .tip-line {
+    grid-column: 2;
+    min-width: 0;
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: var(--muted);
+}.dnet-rule-adv .f > .tip-line a,
+.dnet-rule-adv .note a {
+    color: var(--brand);
     text-decoration: none;
-    transition: color 0.3s ease;
 }
 
-.layui-footer a:hover {
-    color: #01aaed;
+.dnet-rule-adv .f > .tip-line a:hover,
+.dnet-rule-adv .note a:hover {
     text-decoration: underline;
 }
 
-.dnet-form-sources .layui-form-label {
-    width: 45px;
+/* ---- 18.5 CNAME 只读行 ----
+   DCDN 的 CNAME 是服务端算出来回填的，不能编辑，只需要能看 + 能复制。做成
+   只读输入框 + 一枚按钮而不是纯文本，是因为纯文本没有可复制的边界感，
+   用户会试图用鼠标划选；给个按钮明确告诉他怎么拿走。 */
+.dnet-cname {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
 }
 
-.dnet-form-sources .layui-input-inline {
-    margin-right: 25px;
-    width: 85px;
+.dnet-cname > .v {
+    flex: 1 1 auto;
+    min-width: 0;
+    /* layui 是 content-box，不写这行的话 height 会把 1px 上下边框算在外面，
+       比旁边的高级面板输入框高 2px */
+    box-sizing: border-box;
+    height: 32px;
+    padding: 0 9px;
+    border: 1px solid var(--input-line);
+    border-radius: 3px;
+    background: #f6f8f9;
+    font: 12.5px/30px var(--mono);
+    color: var(--text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.dnet-form-sources .dnet-form-http-ports-header {
-    width: 195px;
+/* 还没拿到 CNAME 时降一档语气，别让「—」看起来像一个值 */
+.dnet-cname > .v.is-empty {
+    font-family: var(--font);
+    color: var(--muted);
 }
 
-.dnet-form-sources .dnet-form-http-ports-header {
-    width: 195px;
+.dnet-cname > button {
+    flex: 0 0 auto;
+    margin-top: 0;
 }
 
-.dnet-form-sources .dnet-form-http-ports-body {
-    width: 220px;
-    margin-right: 0px;
-    float: left;
+/* ---- 18.6 窄屏 ----
+   列多且每列都要能填，和 DPF 一样改成整体横向滚动，而不是把列压成一条缝。
+   三页各自给一个能正常编辑的最小宽度。 */
+@media screen and (max-width: 992px) {
+    .dnet-rules.rules-dws {
+        --rule-cols: 26px 116px minmax(150px, 1.3fr) 96px minmax(150px, 1.3fr) 104px minmax(110px, 1fr) 36px;
+        min-width: 940px;
+    }
+
+    .dnet-rules.rules-ddns {
+        --rule-cols: 26px minmax(160px, 1.4fr) 128px 106px 84px 126px minmax(110px, 1fr) 36px;
+        min-width: 900px;
+    }
+
+    /* dcdn 的源站子表有 9 列，最小需要约 844px。主表的 860px 扣掉展开面板的
+       内边距只剩 826，子表就会自己再滚一次 —— 一个列表两条横向滚动条很难用。
+       干脆把最小宽度提到 960，让外层滚动条统管。 */
+    .dnet-rules.rules-dcdn {
+        --rule-cols: 26px minmax(160px, 1.4fr) 128px 100px 84px minmax(110px, 1fr) 36px;
+        min-width: 960px;
+    }
+
+    .dnet-rules.rules-dnsc {
+        --rule-cols: 150px minmax(240px, 2.2fr) 36px;
+        min-width: 520px;
+    }
+
+    /* 展开面板在窄屏会跟着整表一起滚，两列压成一列太窄，保持两列即可 */
+    .dnet-rule-adv {
+        gap: 10px 18px;
+        padding: 12px 14px 13px;
+    }
+
+    .dnet-rule-adv .f {
+        grid-template-columns: 96px minmax(0, 1fr);
+    }
 }
 
-.dnet-form-http-ports-body  > .layui-input-inline > tip {
-    display: inline-block;
-    margin-top: 10px;
-    line-height: 10px;
-    font-size: 10px;
-    color: #a29c9c;
+@media screen and (max-width: 767.98px) {
+    /* 手机宽度下两列并排的「标签 + 输入框」只剩几十像素，改成一列堆叠 */
+    .dnet-rule-adv {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 9px;
+    }
+
+    .dnet-rule-adv .f {
+        grid-template-columns: 88px minmax(0, 1fr);
+    }
 }
 
-.dnet-form-sources .dnet-form-protocol {
-    width: 100px;
-}
-
-.dnet-form-sources .dnet-form-protocol-header {
-    width: 100px;
-}
-
-
-.dnet-form-sources .layui-input-inline p {
-    text-align: center;
-    height: 30px;
-    font-size: 14px;
-}
-
-.dnet-form-sources .dnet-form-type {
-    width: 175px;
-}
-
-.dnet-form-sources .dnet-form-value {
-    width: 300px;
-}
-
-.dnet-form-sources .dnet-form-priority {
-    width: 80px;
-}
-
-.dnet-form-sources .dnet-form-operation {
-    width: 85px;
-}
-
-
-/* Webhook 弹窗按钮样式 */
-.webhook-dialog .layui-layer-btn .layui-layer-btn0 {
-    border-color: transparent;
-    background-color: #1e9fff;
-    color: #fff;
-}
-
-.webhook-dialog .layui-layer-btn .layui-layer-btn1 {
-    border-color: transparent;
-    background-color: #1e9fff;
-    color: #fff;
-}
