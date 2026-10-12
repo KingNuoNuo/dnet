@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/cxbdasheng/dnet/forward"
 	"github.com/cxbdasheng/dnet/helper"
 	"github.com/cxbdasheng/dnet/webservice"
 )
@@ -54,8 +55,9 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		var payload struct {
-			Enabled bool              `json:"enabled"`
-			Rules   []webservice.Rule `json:"rules"`
+			Enabled      bool              `json:"enabled"`
+			AutoFirewall bool              `json:"auto_firewall"`
+			Rules        []webservice.Rule `json:"rules"`
 		}
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
 		decoder.DisallowUnknownFields()
@@ -73,11 +75,15 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		conf.WebServiceEnabled = payload.Enabled
+		conf.WebAutoFirewall = payload.AutoFirewall
 		conf.WebServiceRules = rules
 		active := rules
 		if !payload.Enabled {
 			active = nil
 		}
+		// 防火墙放行：与端口转发共用 forward.SyncFirewall 的对账机制，
+		// 这里只维护 Web 服务自己的期望端口（禁用或关闭开关时清空）。
+		forward.SetExtraFirewallPorts(webservice.FirewallPorts(conf.WebAutoFirewall && payload.Enabled, active))
 		if err := s.WebServices.ApplyCertificates(active, conf.Certificates, func() error { return s.configRepo.Save(&conf) }); err != nil {
 			helper.Error(helper.LogTypeWebService, "配置应用失败: %v", err)
 			helper.ReturnError(w, err.Error())
@@ -86,8 +92,9 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 		helper.Info(helper.LogTypeWebService, "配置保存并应用成功 [开启=%t, 配置数=%d]", payload.Enabled, len(rules))
 	}
 	helper.ReturnSuccess(w, "", struct {
-		Enabled bool                `json:"enabled"`
-		Rules   []webservice.Rule   `json:"rules"`
-		Status  []webservice.Status `json:"status"`
-	}{conf.WebServiceEnabled, webservice.PublicRules(conf.WebServiceRules), s.WebServices.Status()})
+		Enabled      bool                `json:"enabled"`
+		AutoFirewall bool                `json:"auto_firewall"`
+		Rules        []webservice.Rule   `json:"rules"`
+		Status       []webservice.Status `json:"status"`
+	}{conf.WebServiceEnabled, conf.WebAutoFirewall, webservice.PublicRules(conf.WebServiceRules), s.WebServices.Status()})
 }
