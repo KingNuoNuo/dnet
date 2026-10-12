@@ -40,6 +40,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/favicon.ico", s.AuthAssert(faviconFsFunc))
 
 	mux.HandleFunc("/", s.Auth(s.Home))
+	mux.HandleFunc("/api/overview", s.Auth(s.OverviewAPI))
+	mux.HandleFunc("/overview", s.Auth(s.OverviewPage))
 	mux.HandleFunc("/dcdn", s.Auth(s.DCDN))
 	mux.HandleFunc("/certificates", s.Auth(s.CertificatesPage))
 	mux.HandleFunc("/api/certificates", s.Auth(s.CertificatesAPI))
@@ -50,6 +52,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/forward/probe", s.Auth(s.ForwardProbe))
 	mux.HandleFunc("/api/forward/logs", s.Auth(s.ForwardLogs))
 	mux.HandleFunc("/ddns", s.Auth(s.DDNS))
+	mux.HandleFunc("/api/ddns/probe", s.Auth(s.DDNSProbe))
 	mux.HandleFunc("/api/dcdn/config", s.Auth(s.DCDNConfigAPI))
 	mux.HandleFunc("/api/dcdn/upyun/token", s.Auth(s.UpyunToken))
 	mux.HandleFunc("/dcdn/upyun/token-dialog", s.Auth(s.UpyunTokenDialog))

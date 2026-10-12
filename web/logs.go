@@ -4,6 +4,7 @@ import (
 	"embed"
 	"html/template"
 	"net/http"
+	"strconv"
 
 	"github.com/cxbdasheng/dnet/helper"
 )
@@ -70,7 +71,10 @@ func (s *Server) handleLogsAPIDelete(writer http.ResponseWriter, request *http.R
 	helper.ReturnSuccess(writer, "日志已清空", nil)
 }
 
-// LogsCount 获取日志数量和最新日志
+// LogsCount 获取日志总数与最新若干条日志。
+//
+// 默认返回最近 10 条（外壳的未读角标与气泡提示按这个节奏轮询，不要改动默认值）；
+// 需要更多的地方（如状态总览内嵌的日志框）用 ?n= 指定，取值 1 ~ helper.MaxSize。
 func (s *Server) LogsCount(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodGet {
 		helper.ReturnError(writer, "不支持的请求方法")
@@ -78,24 +82,32 @@ func (s *Server) LogsCount(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	memLogger := helper.GetLogger()
-	count := memLogger.GetCount()
-	logs := memLogger.GetLogs()
 
-	// 获取最新的10条日志
-	var latestLogs []helper.LogEntry
-	if len(logs) > 0 {
-		start := 0
-		if len(logs) > 10 {
-			start = len(logs) - 10
-		}
-		latestLogs = logs[start:]
-	} else {
-		latestLogs = []helper.LogEntry{}
+	helper.ReturnSuccess(writer, "", map[string]interface{}{
+		"count":  memLogger.GetCount(),
+		"latest": memLogger.GetRecentLogs(recentLogLimit(request)),
+	})
+}
+
+// recentLogLimit 解析 ?n=，缺省或非法时回落到 10。
+// 上限取 helper.MaxSize（日志环形缓冲的容量），再大也没有数据。
+func recentLogLimit(request *http.Request) int {
+	const fallback = 10
+
+	raw := request.URL.Query().Get("n")
+	if raw == "" {
+		return fallback
 	}
 
-	// 返回日志数量和最新日志
-	helper.ReturnSuccess(writer, "", map[string]interface{}{
-		"count":  count,
-		"latest": latestLogs,
-	})
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	if n < 1 {
+		return 1
+	}
+	if n > helper.MaxSize {
+		return helper.MaxSize
+	}
+	return n
 }

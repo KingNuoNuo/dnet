@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <title>系统设置</title>
@@ -7,67 +7,444 @@
     <link rel="stylesheet" href="/static/css/common.css">
     <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
     <script src="/static/layui.js"></script>
+    <script src="/static/common.js"></script>
+    <script src="/static/dns.js"></script>
+    <script src="/static/cdn.js"></script>
+    <style>
+        .layui-fluid {
+            padding: 16px;
+        }
+    </style>
 </head>
-<style>
-    .layui-fluid {
-        padding: 15px;
-        background: #fff;
-    }
-</style>
 <body>
-<div class="layui-fluid">
-    <div class="layui-row">
-        <form class="layui-form">
-            <div class="layui-form-item">
-                <label for="not_allow_wan_access" class="layui-form-label">禁止公网访问</label>
-                <div class="layui-input-inline">
-                    <input type="checkbox" id="not_allow_wan_access" name="not_allow_wan_access" lay-skin="switch" {{if .NotAllowWanAccess}}checked{{end}}
-                           lay-text="开启|关闭">
-                    <tip>启用后禁止从公网访问此程序</tip>
-                </div>
-            </div>
-            <div class="layui-form-item">
-                <label for="username" class="layui-form-label">用户名</label>
-                <div class="layui-input-block">
-                    <input type="text" id="username" name="username" autocomplete="on" value="{{.Username}}" lay-verify="required" class="layui-input">
-                </div>
-            </div>
-            <div class="layui-form-item">
-                <label for="password" class="layui-form-label">密 码</label>
-                <div class="layui-input-block">
-                    <input type="password" id="password" name="password" class="layui-input" lay-affix="eye">
-                </div>
-            </div>
-            <!--同步频率-->
-            <fieldset class="layui-elem-field layui-field-title">
-                <legend>同步频率设置</legend>
-            </fieldset>
-            <div class="layui-word-aux" style="margin: 0 0 12px 15px;">
-                三个参数配合使用，具体含义与推荐值可参考 <a style="color: #1e9fff" href="https://github.com/cxbdasheng/dnet/wiki/%E5%90%8C%E6%AD%A5%E9%A2%91%E7%8E%87%E8%AE%BE%E7%BD%AE" target="_blank">同步频率设置文档</a>。
-            </div>
-            <div class="layui-form-item">
-                <label for="every" class="layui-form-label">同步间隔</label>
-                <div class="layui-input-inline">
-                    <input type="text" id="every" name="every" value="{{.Every}}" lay-affix="number" step="1" max="86400" min="10" class="layui-input" {{if .EveryLocked}}disabled{{end}}>
-                </div>
-                <div class="layui-form-mid layui-word-aux">秒{{if .EveryLocked}} · <span style="color:#FF5722;">已被命令行参数 -f 锁定，修改无效</span>{{end}}</div>
-            </div>
-            <div class="layui-form-item">
-                <label for="dcdn_cache_times" class="layui-form-label">DCDN 强制同步</label>
-                <div class="layui-input-inline">
-                    <input type="text" id="dcdn_cache_times" name="dcdn_cache_times" value="{{.DCDNCacheTimes}}" lay-affix="number" step="1" max="1000" min="1" class="layui-input" {{if .DCDNCacheTimesLocked}}disabled{{end}}>
-                </div>
-                <div class="layui-form-mid layui-word-aux">次{{if .DCDNCacheTimesLocked}} · <span style="color:#FF5722;">已被命令行参数 -dcdnCacheTimes 锁定，修改无效</span>{{end}}</div>
-            </div>
-            <div class="layui-form-item">
-                <label for="ddns_cache_times" class="layui-form-label">DDNS 强制同步</label>
-                <div class="layui-input-inline">
-                    <input type="text" id="ddns_cache_times" name="ddns_cache_times" value="{{.DDNSCacheTimes}}" lay-affix="number" step="1" max="1000" min="1" class="layui-input" {{if .DDNSCacheTimesLocked}}disabled{{end}}>
-                </div>
-                <div class="layui-form-mid layui-word-aux">次{{if .DDNSCacheTimesLocked}} · <span style="color:#FF5722;">已被命令行参数 -ddnsCacheTimes 锁定，修改无效</span>{{end}}</div>
-            </div>
-        </form>
+<div class="layui-fluid" data-tabs>
+    <div class="dnet-tabs" role="tablist">
+        <button type="button" data-tab="access" class="on">访问控制</button>
+        <button type="button" data-tab="freq">同步频率</button>
+        <button type="button" data-tab="dns">服务商凭据</button>
     </div>
+    <form class="layui-form" onsubmit="return false">
+        <div class="layui-card dnet-panel on" data-panel="access">
+            <div class="layui-card-body">
+                <div class="layui-form-item">
+                    <label for="not_allow_wan_access" class="layui-form-label">禁止公网访问</label>
+                    <div class="layui-input-block">
+                        <input type="checkbox" id="not_allow_wan_access" name="not_allow_wan_access" lay-skin="switch" lay-text="开启|关闭" {{if .NotAllowWanAccess}}checked{{end}}>
+                        <tip>开启后禁止从公网访问此程序，仅允许内网 / 本机访问。</tip>
+                    </div>
+                </div>
+                <div class="layui-form-item">
+                    <label for="username" class="layui-form-label">用户名</label>
+                    <div class="layui-input-block">
+                        <input type="text" id="username" name="username" autocomplete="on" value="{{.Username}}" lay-verify="required" class="layui-input">
+                    </div>
+                </div>
+                <div class="layui-form-item">
+                    <label for="password" class="layui-form-label">密码</label>
+                    <div class="layui-input-block">
+                        <input type="password" id="password" name="password" class="layui-input" lay-affix="eye">
+                        <tip>留空表示不修改当前密码。</tip>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="layui-card dnet-panel" data-panel="freq">
+            <div class="layui-card-body">
+                <div class="layui-word-aux" style="margin: -4px 0 16px;">
+                    三个参数配合使用，具体含义与推荐值可参考 <a style="color: #01aaed" href="https://github.com/cxbdasheng/dnet/wiki/%E5%90%8C%E6%AD%A5%E9%A2%91%E7%8E%87%E8%AE%BE%E7%BD%AE" target="_blank">同步频率设置文档</a>。
+                </div>
+                <div class="layui-form-item">
+                    <label for="every" class="layui-form-label">同步间隔</label>
+                    <div class="layui-input-inline">
+                        <input type="text" id="every" name="every" value="{{.Every}}" lay-affix="number" step="1" max="86400" min="10" class="layui-input" {{if .EveryLocked}}disabled{{end}}>
+                    </div>
+                    <div class="layui-form-mid layui-word-aux">秒{{if .EveryLocked}} · <span style="color:#FF5722;">已被命令行参数 -f 锁定，修改无效</span>{{end}}</div>
+                </div>
+                <div class="layui-form-item">
+                    <label for="dcdn_cache_times" class="layui-form-label">DCDN 强制同步</label>
+                    <div class="layui-input-inline">
+                        <input type="text" id="dcdn_cache_times" name="dcdn_cache_times" value="{{.DCDNCacheTimes}}" lay-affix="number" step="1" max="1000" min="1" class="layui-input" {{if .DCDNCacheTimesLocked}}disabled{{end}}>
+                    </div>
+                    <div class="layui-form-mid layui-word-aux">次{{if .DCDNCacheTimesLocked}} · <span style="color:#FF5722;">已被命令行参数 -dcdnCacheTimes 锁定，修改无效</span>{{end}}</div>
+                </div>
+                <div class="layui-form-item">
+                    <label for="ddns_cache_times" class="layui-form-label">DDNS 强制同步</label>
+                    <div class="layui-input-inline">
+                        <input type="text" id="ddns_cache_times" name="ddns_cache_times" value="{{.DDNSCacheTimes}}" lay-affix="number" step="1" max="1000" min="1" class="layui-input" {{if .DDNSCacheTimesLocked}}disabled{{end}}>
+                    </div>
+                    <div class="layui-form-mid layui-word-aux">次{{if .DDNSCacheTimesLocked}} · <span style="color:#FF5722;">已被命令行参数 -ddnsCacheTimes 锁定，修改无效</span>{{end}}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="layui-card dnet-panel" data-panel="dns">
+            <div class="layui-card-body">
+                <div class="dnet-group">
+                    <span class="t">DNS 服务商凭据</span>
+                    <span class="act">
+                        <button type="button" class="layui-btn layui-btn-primary" id="cred-add">
+                            + 添加服务商
+                        </button>
+                    </span>
+                </div>
+
+                <div class="dnet-rules-scroll">
+                    <div class="dnet-rules rules-dnsc">
+                        <div class="dnet-rules-head">
+                            <span>服务商</span>
+                            <span>凭据</span>
+                            <span></span>
+                        </div>
+                        <div class="dnet-rules-list" id="cred-rows"></div>
+                    </div>
+                </div>
+
+                <p class="dnet-rules-hint">
+                    每个服务商在这里配一次就够，动态 DNS 里只挑服务商，不用每个域名重填一遍。
+                    同一服务商换密钥时也只改这一处。密钥保存后只回显打码值，不动它就保持原样。
+                    回调（Callback）类型的凭据按域名单独配，不在这一列。
+                </p>
+
+                <div class="dnet-group" style="margin-top: 24px;">
+                    <span class="t">CDN 服务商凭据</span>
+                    <span class="act">
+                        <button type="button" class="layui-btn layui-btn-primary" id="cdnc-add">
+                            + 添加服务商
+                        </button>
+                    </span>
+                </div>
+
+                <div class="dnet-rules-scroll">
+                    <div class="dnet-rules rules-dnsc">
+                        <div class="dnet-rules-head">
+                            <span>服务商</span>
+                            <span>凭据</span>
+                            <span></span>
+                        </div>
+                        <div class="dnet-rules-list" id="cdnc-rows"></div>
+                    </div>
+                </div>
+
+                <p class="dnet-rules-hint">
+                    动态 CDN 的域名也只挑服务商。阿里云的 DNS 和 CDN 用的是同一组 AccessKey，
+                    两个分区各配一份即可；回调（Callback）类型的凭据按域名单独配，不在这一列。
+                </p>
+            </div>
+        </div>
+
+        <div class="layui-row layui-form-item">
+            <div class="layui-input-block">
+                <button type="submit" class="layui-btn" lay-submit lay-filter="save">保存设置</button
+                ><button type="button" class="layui-btn layui-btn-primary reset">重置</button>
+            </div>
+        </div>
+    </form>
 </div>
+<script src="/static/tabs.js"></script>
+<script>
+    // 服务商凭据由模板注入（密钥已打码）。字段名随服务商变，清单复用 /static/dns.js 与 /static/cdn.js。
+    var dnsCreds = {{.DNSCreds}};
+    var cdnCreds = {{.CDNCreds}};
+</script>
+<script>
+    layui.use(['form', 'layer'], function () {
+        var form = layui.form;
+        var layer = layui.layer;
+        var $ = layui.$;
+        var unsavedChanges = createUnsavedChangesGuard($);
+
+        function el(id) {
+            return document.getElementById(id);
+        }
+
+        /* ---------------- 服务商凭据（DNS + CDN） ----------------
+           凭据按服务商保存一份，动态 DNS / 动态 CDN 只挑服务商。字段名各家不同
+           （阿里云叫 AccessKey ID、Cloudflare 叫 API Token、NameSilo 只有 API Key），
+           所以标签和 placeholder 都从清单现算，不写死。
+           callback 不在这一列 —— 它的凭据是每个域名各自的回调地址。 */
+        var ICON_CROSS = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg>';
+
+        function esc(value) {
+            return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+                return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+            });
+        }
+
+        /* 一个分区一套管理器：服务商清单、行根节点、添加按钮各自独立，
+           行为完全一致 —— 换服务商清空旧值、每行删除、添加时挑没配过的 */
+        function makeCredentialManager(cfg) {
+            var root = el(cfg.rowsId);
+            var services = Object.keys(cfg.providers).filter(function (id) {
+                return cfg.exclude.indexOf(id) < 0;
+            });
+            var items = (cfg.initial || []).map(function (item) {
+                return {
+                    service: item.service || '',
+                    access_key: item.access_key || '',
+                    access_secret: item.access_secret || ''
+                };
+            });
+
+            function provider(id) {
+                return cfg.providers[id] || {};
+            }
+
+            /* 标签统一去掉结尾的冒号（原页面写的是全角冒号，塞进 placeholder 里难看） */
+            function label(id, field) {
+                var raw = field === 'id' ? provider(id).idLabel : provider(id).secretLabel;
+                return String(raw || '').replace(/[：:]\s*$/, '').trim();
+            }
+
+            function row(item, index) {
+                var p = provider(item.service);
+                var fields = [];
+                if (p.idLabel) {
+                    fields.push({key: 'access_key', label: label(item.service, 'id')});
+                }
+                if (p.secretLabel) {
+                    fields.push({key: 'access_secret', label: label(item.service, 'secret')});
+                }
+                /* 清单里万一两个 label 都缺，就把两格都留出来，
+                   免得整行没有任何能填的地方 */
+                if (!fields.length) {
+                    fields = [
+                        {key: 'access_key', label: '凭据 ID'},
+                        {key: 'access_secret', label: '凭据密钥'}
+                    ];
+                }
+                var options = services.map(function (id) {
+                    return '<option value="' + id + '"' + (id === item.service ? ' selected' : '') + '>' +
+                        esc(provider(id).name || id) + '</option>';
+                }).join('');
+                return '<div class="dnet-rule" data-idx="' + index + '">' +
+                    '<div class="dnet-rule-main">' +
+                    '<select data-ck="service" lay-ignore aria-label="服务商">' + options + '</select>' +
+                    '<div class="dnet-cred-fields">' + fields.map(function (field) {
+                        return '<input data-ck="' + field.key + '" aria-label="' + esc(field.label) + '"' +
+                            ' placeholder="' + esc(field.label) + '" autocomplete="off"' +
+                            ' value="' + esc(item[field.key]) + '">';
+                    }).join('') + '</div>' +
+                    '<button type="button" class="dnet-rule-del" aria-label="删除该行" title="删除该行">' + ICON_CROSS + '</button>' +
+                    '</div></div>';
+            }
+
+            function render() {
+                root.innerHTML = items.length
+                    ? items.map(row).join('')
+                    : '<p class="note">还没有配置任何服务商。点右上角「+ 添加服务商」。</p>';
+            }
+
+            root.addEventListener('input', function (e) {
+                var key = e.target.dataset.ck;
+                if (!key || key === 'service') return;
+                var rowEl = e.target.closest('.dnet-rule');
+                if (rowEl) items[Number(rowEl.dataset.idx)][key] = e.target.value;
+            });
+            root.addEventListener('change', function (e) {
+                var key = e.target.dataset.ck;
+                if (key !== 'service') return;
+                var rowEl = e.target.closest('.dnet-rule');
+                if (!rowEl) return;
+                var index = Number(rowEl.dataset.idx);
+                items[index].service = e.target.value;
+                /* 换了服务商，字段名和语义都变了（甚至只剩一个字段），
+                   留着上一家的密钥没意义 —— 清空重填 */
+                items[index].access_key = '';
+                items[index].access_secret = '';
+                render();
+            });
+            root.addEventListener('click', function (e) {
+                if (!e.target.closest('.dnet-rule-del')) return;
+                var rowEl = e.target.closest('.dnet-rule');
+                if (!rowEl) return;
+                items.splice(Number(rowEl.dataset.idx), 1);
+                render();
+            });
+            el(cfg.addId).onclick = function () {
+                var used = items.map(function (item) {
+                    return item.service;
+                });
+                var next = services.filter(function (id) {
+                    return used.indexOf(id) < 0;
+                })[0];
+                if (!next) {
+                    layer.msg('服务商都已经配置过了');
+                    return;
+                }
+                items.push({service: next, access_key: '', access_secret: ''});
+                render();
+            };
+
+            render();
+
+            return {
+                items: function () {
+                    return JSON.parse(JSON.stringify(items));
+                },
+                /* 深拷贝写入：snapshot 和当前编辑状态不能共享同一份引用 */
+                set: function (list) {
+                    items = (list || []).map(function (item) {
+                        return {
+                            service: item.service || '',
+                            access_key: item.access_key || '',
+                            access_secret: item.access_secret || ''
+                        };
+                    });
+                    render();
+                }
+            };
+        }
+
+        var dnsCredMgr = makeCredentialManager({
+            providers: DNS_PROVIDERS,
+            exclude: ['callback'],
+            rowsId: 'cred-rows',
+            addId: 'cred-add',
+            initial: dnsCreds
+        });
+        var cdnCredMgr = makeCredentialManager({
+            providers: CDN_PROVIDERS,
+            exclude: ['callback', 'mock'],
+            rowsId: 'cdnc-rows',
+            addId: 'cdnc-add',
+            initial: cdnCreds
+        });
+
+        /* 读取表单。数字留空按 0 提交 —— 后端把 0 视作「未设置」，
+           会回落到默认值，与命令行锁定时的处理一致 */
+        function read() {
+            function num(id) {
+                var raw = el(id).value.trim();
+                return raw === '' ? 0 : parseInt(raw, 10);
+            }
+
+            return {
+                not_allow_wan_access: el('not_allow_wan_access').checked,
+                username: el('username').value,
+                password: el('password').value,
+                every: num('every'),
+                dcdn_cache_times: num('dcdn_cache_times'),
+                ddns_cache_times: num('ddns_cache_times'),
+                /* 深拷贝：snapshot 和当前编辑状态不能共享同一份引用，
+                   否则「重置」会比较不出差别 */
+                dns_credentials: dnsCredMgr.items(),
+                cdn_credentials: cdnCredMgr.items()
+            };
+        }
+
+        function write(data) {
+            el('not_allow_wan_access').checked = !!data.not_allow_wan_access;
+            el('username').value = data.username;
+            el('password').value = '';
+            el('every').value = data.every;
+            el('dcdn_cache_times').value = data.dcdn_cache_times;
+            el('ddns_cache_times').value = data.ddns_cache_times;
+            dnsCredMgr.set(data.dns_credentials || []);
+            cdnCredMgr.set(data.cdn_credentials || []);
+            form.render('checkbox');
+        }
+
+        /* 进入页面时的值，作为「重置」的基准；保存成功后再刷新基准 */
+        var snapshot = read();
+
+        /* 与后端 handleSettingsPost 的校验保持一致：先在前端拦一道，省一次往返。
+           两边都要有 —— 页面里的 JS 是能被绕过的 */
+        function validate(data) {
+            if (!data.username.trim()) {
+                return '用户名不能为空';
+            }
+            if (data.every !== 0 && (isNaN(data.every) || data.every < 10 || data.every > 86400)) {
+                return '同步间隔需在 10 – 86400 秒之间';
+            }
+            if (data.dcdn_cache_times !== 0 && (isNaN(data.dcdn_cache_times) || data.dcdn_cache_times < 1 || data.dcdn_cache_times > 1000)) {
+                return 'DCDN 强制同步次数需在 1 – 1000 之间';
+            }
+            if (data.ddns_cache_times !== 0 && (isNaN(data.ddns_cache_times) || data.ddns_cache_times < 1 || data.ddns_cache_times > 1000)) {
+                return 'DDNS 强制同步次数需在 1 – 1000 之间';
+            }
+            var seen = {};
+            for (var i = 0; i < data.dns_credentials.length; i++) {
+                var service = data.dns_credentials[i].service;
+                if (!service) {
+                    return '请选择 DNS 服务商';
+                }
+                if (seen[service]) {
+                    return '「' + service + '」配置了重复的凭据，同一服务商只能有一份';
+                }
+                if (!data.dns_credentials[i].access_key.trim() && !data.dns_credentials[i].access_secret.trim()) {
+                    return '请填写 ' + ((DNS_PROVIDERS[service] || {}).name || service) + ' 的凭据';
+                }
+                seen[service] = true;
+            }
+            seen = {};
+            for (var j = 0; j < data.cdn_credentials.length; j++) {
+                var cdnService = data.cdn_credentials[j].service;
+                if (!cdnService) {
+                    return '请选择 CDN 服务商';
+                }
+                if (seen[cdnService]) {
+                    return '「' + cdnService + '」配置了重复的凭据，同一服务商只能有一份';
+                }
+                if (!data.cdn_credentials[j].access_key.trim() && !data.cdn_credentials[j].access_secret.trim()) {
+                    return '请填写 ' + ((CDN_PROVIDERS[cdnService] || {}).name || cdnService) + ' 的凭据';
+                }
+                seen[cdnService] = true;
+            }
+            return '';
+        }
+
+        function post(data) {
+            return fetch('/settings', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            }).then(function (response) {
+                return response.json().catch(function () {
+                    throw new Error('服务器响应解析失败');
+                });
+            }).then(function (result) {
+                if (!result || !result.status) {
+                    throw new Error((result && result.msg) || '保存失败');
+                }
+                return result;
+            });
+        }
+
+        form.on('submit(save)', function () {
+            var data = read();
+            var error = validate(data);
+            if (error) {
+                layer.msg(error, {icon: 2, time: 2000});
+                return false;
+            }
+
+            var loading = layer.msg('正在保存…', {icon: 16, shade: 0.2, time: 0});
+            post(data).then(function (result) {
+                layer.close(loading);
+                // 密码不回显：保存后清空，并把清空后的状态作为新的重置基准
+                el('password').value = '';
+                snapshot = read();
+                unsavedChanges.markSaved(unsavedChanges.version());
+                layer.msg(result.msg || '保存成功', {icon: 1, time: 1500});
+            }).catch(function (err) {
+                layer.close(loading);
+                layer.msg(err && err.message ? err.message : '保存失败', {icon: 2, time: 2500});
+            });
+            return false;
+        });
+
+        $('.reset').on('click', function () {
+            if (JSON.stringify(read()) === JSON.stringify(snapshot)) {
+                return;
+            }
+            layer.confirm('放弃未保存的修改，恢复到进入页面时的设置？', {title: '重置'}, function (index) {
+                write(snapshot);
+                layer.close(index);
+            });
+        });
+    });
+</script>
 </body>
 </html>

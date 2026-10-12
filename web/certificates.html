@@ -78,7 +78,8 @@
     </style>
   </head>
   <body>
-    <div class="layui-container" style="padding: 15px">
+    <div class="layui-container">
+        <p class="page-desc">证书管理 —— 申请、续期并自动部署 HTTPS 证书。</p>
       <div class="layui-card">
         <div class="layui-card-header">DSSL 证书管理</div>
         <div class="layui-card-body">
@@ -114,7 +115,7 @@
       </div>
       <div class="layui-card" id="editor" hidden>
         <div class="layui-card-header" id="editor-title">添加证书</div>
-        <form class="layui-card-body layui-form" id="form">
+        <form class="layui-card-body layui-form dnet-fields" id="form">
           <div class="layui-row layui-form-item">
             <label class="layui-form-label" for="name">证书名称：</label>
             <div class="layui-input-block">
@@ -132,6 +133,8 @@
             </div>
           </div>
           <div data-source="upload">
+            <!-- 两个「选择文件」并排一行，两个 PEM 输入框整行铺开：
+                 原顺序是两个文件按钮被两个整行的 textarea 隔开，右列会一直空着 -->
             <div class="layui-row layui-form-item">
               <label class="layui-form-label" for="cert-file">证书文件：</label>
               <div class="layui-input-block">
@@ -154,18 +157,6 @@
               </div>
             </div>
             <div class="layui-row layui-form-item">
-              <label class="layui-form-label" for="cert-pem"
-                >证书链内容：</label
-              >
-              <div class="layui-input-block">
-                <textarea
-                  class="layui-textarea"
-                  id="cert-pem"
-                  spellcheck="false"
-                ></textarea>
-              </div>
-            </div>
-            <div class="layui-row layui-form-item">
               <label class="layui-form-label" for="key-file">私钥文件：</label>
               <div class="layui-input-block">
                 <button
@@ -184,6 +175,18 @@
                   role="status"
                   >未选择文件</span
                 >
+              </div>
+            </div>
+            <div class="layui-row layui-form-item">
+              <label class="layui-form-label" for="cert-pem"
+                >证书链内容：</label
+              >
+              <div class="layui-input-block">
+                <textarea
+                  class="layui-textarea"
+                  id="cert-pem"
+                  spellcheck="false"
+                ></textarea>
               </div>
             </div>
             <div class="layui-row layui-form-item">
@@ -234,16 +237,6 @@
               </div>
             </div>
             <div class="layui-row layui-form-item">
-              <label class="layui-form-label" for="domains">申请域名：</label>
-              <div class="layui-input-block">
-                <textarea
-                  class="layui-textarea"
-                  id="domains"
-                  placeholder="example.com&#10;*.example.com"
-                ></textarea>
-              </div>
-            </div>
-            <div class="layui-row layui-form-item">
               <label class="layui-form-label" for="ca">证书颁发机构：</label>
               <div class="layui-input-block">
                 <select lay-filter="certificate-option" id="ca">
@@ -261,6 +254,16 @@
                     ZeroSSL
                   </option>
                 </select>
+              </div>
+            </div>
+            <div class="layui-row layui-form-item">
+              <label class="layui-form-label" for="domains">申请域名：</label>
+              <div class="layui-input-block">
+                <textarea
+                  class="layui-textarea"
+                  id="domains"
+                  placeholder="example.com&#10;*.example.com"
+                ></textarea>
               </div>
             </div>
             <div id="eab-switch-field" class="layui-row layui-form-item" hidden>
