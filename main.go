@@ -81,11 +81,44 @@ var webServer *web.Server
 var forwardManager = forward.NewManager()
 var webServiceManager = webservice.NewManager()
 
+// printUsage 自定义 -h 输出：flag 包默认只有一行英文简介，参数含义、默认值
+// 和服务管理子命令都不直观，这里按 README「高级选项」同一套口径给出中文说明。
+func printUsage() {
+	fmt.Println("D-NET —— 动态 NET 解析管理系统")
+	fmt.Println()
+	fmt.Println("用法：")
+	fmt.Println("  dnet [参数]                直接前台运行")
+	fmt.Println("  dnet -s install [参数]     安装为系统服务（参数会成为服务启动参数）")
+	fmt.Println()
+	fmt.Println("参数说明：")
+	fmt.Println("  -s <子命令>            服务管理：install / uninstall / restart")
+	fmt.Println("  -c <路径>              自定义配置文件路径 (默认 " + config.GetConfigFilePathDefault() + ")")
+	fmt.Println("  -l <地址>              Web 管理界面监听地址 (默认 :9877)")
+	fmt.Println("  -f <秒>                同步间隔时间（秒）(默认 " + strconv.Itoa(config.DefaultEvery) + ")")
+	fmt.Println("  -u                     升级 D-NET 到最新版本")
+	fmt.Println("  -dns <服务器>          自定义 DNS 服务器，例：-dns 8.8.8.8")
+	fmt.Println("  -noweb                 不启动 Web 管理界面")
+	fmt.Println("  -skipVerify            业务请求跳过 HTTPS 证书验证（默认关闭，有中间人风险）")
+	fmt.Println("  -dcdnCacheTimes <N>    每隔 N 次强制同步一次 CDN 记录")
+	fmt.Println("  -ddnsCacheTimes <N>    每隔 N 次强制同步一次 DNS 记录")
+	fmt.Println("  -resetPassword <密码>  重置 Web 登录密码")
+	fmt.Println("  -v                     显示版本号")
+	fmt.Println("  -h                     显示本帮助")
+	fmt.Println()
+	fmt.Println("示例：")
+	fmt.Println("  dnet -s install -l :9877 -f 300 -c /path/to/config.yaml")
+	fmt.Println("  dnet -s uninstall")
+	fmt.Println("  dnet -resetPassword newpass")
+	fmt.Println()
+	fmt.Println("更多文档：https://github.com/cxbdasheng/dnet/wiki")
+}
+
 func main() {
 	helper.InitLoggerWithConsole(helper.MaxSize, true)
 	if !strings.EqualFold(version, "DEV") {
 		helper.SetMinLevel(helper.LogLevelINFO)
 	}
+	flag.Usage = printUsage
 	flag.Parse()
 	recordCLIOverrides()
 
@@ -225,8 +258,10 @@ func run() {
 		if err := forwardManager.Apply(conf.ActiveForwardRules(), nil); err != nil {
 			helper.Error(helper.LogTypeSystem, "启动端口转发失败: %v", err)
 		}
-		// 自动放行对账放最后：只增删 dnet- 前缀的 uci 规则，失败不影响转发
+		// 自动放行对账放最后：只增删 dnet- 前缀的 uci 规则，失败不影响转发。
+		// 先同步端口转发的期望集合，再追加 Web 服务的放行端口。
 		forward.SyncFirewall(conf.ForwardAutoFirewall, conf.ActiveForwardRules())
+		forward.SetExtraFirewallPorts(webservice.FirewallPorts(conf.WebAutoFirewall && conf.WebServiceEnabled, conf.WebServiceRules))
 	}
 	if !*noWebService {
 		go func() {
