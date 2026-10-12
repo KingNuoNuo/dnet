@@ -21,12 +21,12 @@ type Server struct {
 	certificateJobs     map[string]bool
 	certificateProgress map[string]string // 证书 id -> 当前申请步骤（悬浮展示）
 	certificateContext  context.Context
-	WebServices        *webservice.Manager
-	webServiceMu       sync.Mutex
-	Forwarder          *forward.Manager
-	forwardMu          sync.Mutex
-	configRepo         config.Repository
-	syncer             SyncService
+	WebServices         *webservice.Manager
+	webServiceMu        sync.Mutex
+	Forwarder           *forward.Manager
+	forwardMu           sync.Mutex
+	configRepo          config.Repository
+	syncer              SyncService
 }
 
 func NewServer(configRepo config.Repository, syncer SyncService) *Server {

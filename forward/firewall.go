@@ -27,15 +27,15 @@ import (
 // iptables 的 --comment），对账时只碰自己的，用户的规则不碰。
 
 var (
-	fwMu         sync.Mutex
-	fwDetector   func(string) bool = fileInPath // 测试可替换
-	fwBackend    string                         // "" 表示未检测；fw4 / fw3 / nft / iptables / none
+	fwMu          sync.Mutex
+	fwDetector    func(string) bool = fileInPath // 测试可替换
+	fwBackend     string                         // "" 表示未检测；fw4 / fw3 / nft / iptables / none
 	fwWarned      bool                           // 首次启用提示只发一次
 	fwExtraWarned bool                           // Web 服务放行提示只发一次
 	fwPersistWarn bool                           // 通用后端的「重启失效」提示只发一次
-	ruleNameRe   = regexp.MustCompile(`[^A-Za-z0-9-]+`)
-	uciSectionRe = regexp.MustCompile(`(?m)^firewall\.([^\s.]+)\.name='(dnet-[^']*)'$`)
-	uciFieldRe   = regexp.MustCompile(`(?m)^firewall\.([^\s.]+)\.(dest_port|proto)='([^']*)'$`)
+	ruleNameRe    = regexp.MustCompile(`[^A-Za-z0-9-]+`)
+	uciSectionRe  = regexp.MustCompile(`(?m)^firewall\.([^\s.]+)\.name='(dnet-[^']*)'$`)
+	uciFieldRe    = regexp.MustCompile(`(?m)^firewall\.([^\s.]+)\.(dest_port|proto)='([^']*)'$`)
 	// nft -a list 的规则行：`tcp dport 8080 accept comment "dnet-x" # handle 12`
 	nftRuleRe = regexp.MustCompile(`(?m)^\s*(?:meta l4proto )?(tcp|udp) dport (\d+) accept comment "(dnet-[^"]+)"\s*# handle (\d+)`)
 	// iptables -S 的规则行：`-A INPUT -p tcp -m tcp --dport 8080 -m comment --comment dnet-x -j ACCEPT`

@@ -73,9 +73,9 @@ func TestDetectBackendOrder(t *testing.T) {
 	orig := fwDetector
 	defer func() { fwDetector = orig }()
 	for _, c := range []struct {
-		in    []string
+		in      []string
 		restore bool
-		want  string
+		want    string
 	}{
 		{in: []string{"fw4", "nft", "iptables"}, want: "fw4"},
 		{in: []string{"fw3", "nft", "iptables"}, want: "fw3"},
