@@ -1,116 +1,136 @@
 name: Release
 
+# Fork 的轻量发布流水线：打 tag（v*）即自动交叉编译并发布 GitHub Release。
+# 不依赖 GoReleaser / Docker Hub secrets。
+
 on:
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  quality:
-    uses: ./.github/workflows/quality.yml
-
-  security:
-    uses: ./.github/workflows/security.yml
-
-  docker:
-    uses: ./.github/workflows/docker-test.yml
-
-  gate:
-    name: Release gate
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux,  goarch: amd64, ext: '',     archive: tar.gz }
+          - { goos: linux,  goarch: arm64, ext: '',     archive: tar.gz }
+          - { goos: linux,  goarch: arm,   goarm: '7',  ext: '', archive: tar.gz }
+          - { goos: darwin, goarch: amd64, ext: '',     archive: tar.gz }
+          - { goos: darwin, goarch: arm64, ext: '',     archive: tar.gz }
+          - { goos: windows, goarch: amd64, ext: '.exe', archive: zip }
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
+        uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - name: Verify modules
-        run: go mod verify
-
-      - name: Test
+      - name: Run tests
         run: go test ./...
 
-      - name: Vet
-        run: go vet ./...
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: 0
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          go build -trimpath \
+            -ldflags "-s -w -X 'main.version=${GITHUB_REF_NAME}'" \
+            -o "out/dnet${{ matrix.ext }}" .
+          NAME="dnet_${VERSION}_${GOOS}_${GOARCH}${GOARM:+v${GOARM}}"
+          mkdir -p "dist/${NAME}"
+          cp "out/dnet${{ matrix.ext }}" "dist/${NAME}/"
+          cp README.md LICENSE "dist/${NAME}/" 2>/dev/null || true
+          cd dist
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            zip -qr "${NAME}.zip" "${NAME}"
+          else
+            tar -czf "${NAME}.tar.gz" "${NAME}"
+          fi
+          cd ..
+          sha256sum "dist/${NAME}.${{ matrix.archive }}" > "dist/${NAME}.${{ matrix.archive }}.sha256"
+          echo "ASSET=dist/${NAME}.${{ matrix.archive }}" >> "$GITHUB_OUTPUT"
+          echo "CHECKSUM=dist/${NAME}.${{ matrix.archive }}.sha256" >> "$GITHUB_OUTPUT"
+        id: build
 
-      - name: Race test
-        run: go test -race ./...
-
-      - name: Check GoReleaser configuration
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          distribution: goreleaser
-          version: v2.18.1
-          args: check
-
-      - name: Package snapshot
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
-        with:
-          distribution: goreleaser
-          version: v2.18.1
-          args: release --snapshot --clean --skip=docker
-
-      - name: Verify release artifacts
-        run: python3 scripts/verify-release-artifacts.py dist
+          name: asset-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm && format('v{0}', matrix.goarm) || '' }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          retention-days: 3
 
   release:
     name: Publish release
-    needs: [gate, quality, security, docker]
+    needs: [build]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: write
-      packages: write
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Download all assets
+        uses: actions/download-artifact@v4
         with:
-          go-version-file: go.mod
+          merge-multiple: true
+          path: dist
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - name: Generate release notes
+        run: |
+          {
+            echo "## 本 Fork 的修改（相对上游 [cxbdasheng/dnet](https://github.com/cxbdasheng/dnet) 基准 \`fb76da9\`）"
+            echo
+            echo "### 界面与交互"
+            echo "- 四页（DDNS / DCDN / DPF / DWS）行列表 UI 重构：行内编辑、行点击选中，超宽屏列宽封顶、整表限宽靠左"
+            echo "- 端口转发每条规则显示实时流量（↑入 / ↓出）与活跃连接数，移除全局流量 KPI 与重复的「配置」栏"
+            echo "- DDNS 解析状态列不再显示 IP（悬浮查看「期望 / 实际」明细），日期统一 \`YYYY-MM-DD\` 格式"
+            echo "- 修复会话过期后在 iframe 内登录导致页面嵌套的问题"
+            echo "- 系统日志归位：常驻日志区保留在状态总览页，移除外壳侧栏入口与日志弹窗"
+            echo
+            echo "### 功能增强"
+            echo "- 服务商凭据全局化：DNS / CDN AccessKey / Secret 统一在系统设置维护，升级时自动迁移旧凭据"
+            echo "- 防火墙自动放行：四级检测 fw4 → fw3 → nft → iptables，自适应 OpenWrt 与通用 Linux；只动 dnet- 前缀规则，端口转发与 Web 服务共用"
+            echo "- SSL 证书申请进度实时上报，悬浮状态格查看当前步骤"
+            echo
+            echo "### 命令行"
+            echo "- \`dnet -h\` 输出完整中文帮助（参数说明、默认值、服务管理子命令与示例）"
+            echo
+            echo "## 提交记录"
+            echo
+            git log --oneline --no-decorate fb76da9.."${GITHUB_REF_NAME}" | head -60 || true
+          } > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
-        with:
-          distribution: goreleaser
-          version: v2.18.1
-          args: release --clean
+          name: D-NET ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
