@@ -1,15 +1,25 @@
 <div align="center">
 
 # D-NET 动态网络管理系统
-一款轻量轻量级网络管理工具，支持 DDNS、动态 CDN、端口转发、反向代理、在线测速与自动证书管理。
 
+**轻量级自托管网络管理工具** —— 一套面板搞定 DDNS、动态 CDN、端口转发、反向代理、在线测速与自动证书，支持 20+ 云厂商。
+
+[![Stars](https://img.shields.io/github/stars/KingNuoNuo/dnet?style=flat&color=4F46E5)](https://github.com/KingNuoNuo/dnet/stargazers)
+[![Forks](https://img.shields.io/github/forks/KingNuoNuo/dnet?style=flat&color=4F46E5)](https://github.com/KingNuoNuo/dnet/network/members)
+[![Watchers](https://img.shields.io/github/watchers/KingNuoNuo/dnet?style=flat&color=4F46E5)](https://github.com/KingNuoNuo/dnet/watchers)
+[![Issues](https://img.shields.io/github/issues/KingNuoNuo/dnet?style=flat&color=4F46E5)](https://github.com/KingNuoNuo/dnet/issues)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-%3E%3D1.26.6-blue.svg)](https://go.dev/)
-[![Release](https://img.shields.io/github/v/release/cxbdasheng/dnet)](https://github.com/cxbdasheng/dnet/releases)
-[![Go Report Card](https://goreportcard.com/badge/github.com/cxbdasheng/dnet)](https://goreportcard.com/report/github.com/cxbdasheng/dnet)
-[![GitHub Downloads](https://img.shields.io/github/downloads/cxbdasheng/dnet/total)](https://github.com/cxbdasheng/dnet/releases)
+[![Release](https://img.shields.io/github/v/release/KingNuoNuo/dnet?style=flat&color=4F46E5)](https://github.com/KingNuoNuo/dnet/releases)
+[![GitHub Downloads](https://img.shields.io/github/downloads/KingNuoNuo/dnet/total?style=flat&color=4F46E5)](https://github.com/KingNuoNuo/dnet/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/KingNuoNuo/dnet?style=flat&color=4F46E5)](https://github.com/KingNuoNuo/dnet/commits/main)
+[![Go Report Card](https://goreportcard.com/badge/github.com/KingNuoNuo/dnet)](https://goreportcard.com/report/github.com/KingNuoNuo/dnet)
 
-[主要功能](#主要功能) • [快速开始](#快速开始) • [最佳实践](https://github.com/cxbdasheng/dnet/wiki/%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5) • [Wiki 文档](https://github.com/cxbdasheng/dnet/wiki)
+[⬇️ 下载](https://github.com/KingNuoNuo/dnet/releases/latest) · [🐛 反馈问题](https://github.com/KingNuoNuo/dnet/issues) · [💡 功能建议](https://github.com/KingNuoNuo/dnet/issues)
+
+`DDNS` `Dynamic DNS` `CDN` `DCDN` `Port Forwarding` `Reverse Proxy` `ACME` `Let's Encrypt` `HTTPS` `Cloudflare` `Self-hosted` `NAS` `Homelab` `Go` `WebUI`
+
+[主要功能](#主要功能) • [快速开始](#快速开始) • [最佳实践](https://github.com/KingNuoNuo/dnet/wiki/%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5) • [Wiki 文档](https://github.com/KingNuoNuo/dnet/wiki)
 </div>
 
 ---
@@ -51,13 +61,13 @@
 
 ## 快速开始
 
-> 更多使用示例和详细配置说明见 [Wiki](https://github.com/cxbdasheng/dnet/wiki)，常见问题见 [FAQ](https://github.com/cxbdasheng/dnet/wiki/FAQ)。
+> 更多使用示例和详细配置说明见 [Wiki](https://github.com/KingNuoNuo/dnet/wiki)，常见问题见 [FAQ](https://github.com/KingNuoNuo/dnet/wiki/FAQ)。
 
 ### 方式一：使用二进制文件
 
 #### 1. 下载安装
 
-从 [Releases](https://github.com/cxbdasheng/dnet/releases) 页面下载适合您系统的版本并解压。
+从 [Releases](https://github.com/KingNuoNuo/dnet/releases) 页面下载适合您系统的版本并解压。
 
 #### 2. 安装为系统服务
 
@@ -109,7 +119,7 @@ sudo ./dnet -s restart            # Mac/Linux
 >
 > 正常运行时会在启动同步任务前检查 DNS 解析能力，最长等待 60 秒。Web 管理界面会优先启动；等待超时也不会阻止周期同步任务继续运行。
 >
-> 更多使用参数，请查看 [Wiki 文档 - D‐NET 使用指南](https://github.com/cxbdasheng/dnet/wiki/D%E2%80%90NET-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97#%E5%91%BD%E4%BB%A4%E5%8F%82%E6%95%B0)。
+> 更多使用参数，请查看 [Wiki 文档 - D‐NET 使用指南](https://github.com/KingNuoNuo/dnet/wiki/D%E2%80%90NET-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97#%E5%91%BD%E4%BB%A4%E5%8F%82%E6%95%B0)。
 
 **使用示例：**
 ```bash
@@ -273,7 +283,7 @@ go run main.go                          # 直接运行
     ```
   </details>
 
-> 详细 Webhook 配置参考 [Wiki 文档 - WebHook 配置指南](https://github.com/cxbdasheng/dnet/wiki/WebHook-%E9%85%8D%E7%BD%AE%E6%8C%87%E5%8D%97)。
+> 详细 Webhook 配置参考 [Wiki 文档 - WebHook 配置指南](https://github.com/KingNuoNuo/dnet/wiki/WebHook-%E9%85%8D%E7%BD%AE%E6%8C%87%E5%8D%97)。
 
 ### 反向代理与客户端 IP
 默认仅使用连接来源地址判断客户端 IP，不信任客户端提供的 `X-Forwarded-For` 和 `X-Real-IP`。
@@ -282,3 +292,34 @@ go run main.go                          # 直接运行
 程序从右向左检查转发链，取第一个不受信任的地址作为客户端 IP；可信代理缺少有效客户端信息时，无法通过“禁止公网访问”检查。
 ## 贡献与许可
 欢迎贡献代码或提出建议，详见 [贡献指南](CONTRIBUTING.md)。本项目采用 [MIT](LICENSE) 许可证。
+
+## English
+
+**D-NET** is a lightweight self-hosted network management tool written in Go, with a built-in web UI and
+single-binary deployment. It unifies the chores that usually mean juggling half a dozen cloud consoles:
+
+- **DDNS** — A / AAAA / CNAME / TXT records across Alibaba Cloud, Tencent Cloud, Cloudflare, Huawei Cloud, Dnspod, NameSilo, GoDaddy, DNSLA, Porkbun and custom callbacks
+- **Dynamic CDN** — automatically updates CDN origin when your IP changes (Alibaba DCDN / ESA, Tencent EdgeOne, Baidu DRCDN, Cloudflare, Upyun)
+- **Port forwarding** — IPv4 / IPv6 ingress forwarding with source allow-list, connection and session limits
+- **Reverse proxy & speed test** — multi-domain shared port, WebSocket passthrough, HTTPS ingress, access control, online speed test
+- **Certificates** — ACME auto-issue and renew via Let's Encrypt / HTTP-01 / DNS-01 (Cloudflare, Alibaba, DNSPod)
+- **Webhook notifications** when your public IP changes
+
+This repository is a fork of [cxbdasheng/dnet](https://github.com/cxbdasheng/dnet); see the "Changes in this fork" section above.
+
+<!-- traffic:start -->
+
+## 📊 访问统计
+
+![近 14 天访问趋势](docs/traffic.svg)
+
+| 指标 | 近 14 天 |
+| --- | ---: |
+| 页面浏览量 | 34 |
+| 独立访客 | 34 |
+| 克隆次数 | 93 |
+| 独立克隆者 | 36 |
+
+<sub>数据窗口 2026-09-30 ~ 2026-10-13 · 由 GitHub Actions 每日更新于 2026-10-14 · 来源：GitHub Traffic API（仅统计最近 14 天）</sub>
+
+<!-- traffic:end -->
