@@ -17,7 +17,7 @@
 
 如果您发现了 Bug，请：
 
-1. 先在 [Issues](https://github.com/cxbdasheng/dnet/issues) 中搜索，确认问题尚未被报告
+1. 先在 [Issues](https://github.com/KingNuoNuo/dnet/issues) 中搜索，确认问题尚未被报告
 2. 创建新的 Issue，包含以下信息：
    - 清晰的标题和描述
    - 复现步骤
@@ -29,7 +29,7 @@
 
 如果您有新功能的想法：
 
-1. 先在 [Issues](https://github.com/cxbdasheng/dnet/issues) 中搜索，确认建议尚未被提出
+1. 先在 [Issues](https://github.com/KingNuoNuo/dnet/issues) 中搜索，确认建议尚未被提出
 2. 创建新的 Issue，详细描述：
    - 功能的使用场景
    - 预期的实现方式
@@ -272,7 +272,7 @@ func TestConfigLoad(t *testing.T) {
 
 如果您在贡献过程中遇到问题：
 
-- 查看 [Issues](https://github.com/cxbdasheng/dnet/issues) 中的讨论
+- 查看 [Issues](https://github.com/KingNuoNuo/dnet/issues) 中的讨论
 - 创建新的 Issue 寻求帮助
 - 参考项目文档和代码示例
 
