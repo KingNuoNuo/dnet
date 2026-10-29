@@ -112,7 +112,7 @@ jobs:
         run: |
           cd dist
           # D-NET 的 -u 与 luci-app-dnet 都要求一个 checksums.txt（sha256sum 两空格格式）。
-          sha256sum *.tar.gz *.zip > checksums.txt
+          sha256sum -- *.tar.gz *.zip > checksums.txt
           cat checksums.txt
 
       - name: Generate release notes
