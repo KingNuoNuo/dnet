@@ -16,12 +16,12 @@ func CheckAndUpdate(currentVersion string, autoRestart bool) error {
 	helper.Info(helper.LogTypeSystem, "正在检查更新...")
 	helper.Info(helper.LogTypeSystem, "当前版本: %s", currentVersion)
 
-	// 检查当前版本是否为语义化版本
+	// 解析当前版本；解析不出（DEV、日期构建号等）时不再直接放弃，
+	// 否则这类二进制永远无法通过 -u 升级到可管理的版本线。
 	v, err := NewVersion(currentVersion)
 	if err != nil {
-		helper.Warn(helper.LogTypeSystem, "当前版本 '%s' 不是语义化版本格式，无法自动更新", currentVersion)
-		helper.Info(helper.LogTypeSystem, "请手动下载最新版本: https://github.com/KingNuoNuo/dnet/releases/latest")
-		return fmt.Errorf("版本格式不正确: %w", err)
+		helper.Warn(helper.LogTypeSystem, "当前版本 '%s' 不是语义化版本，无法比较新旧", currentVersion)
+		v = nil
 	}
 
 	// 获取最新版本信息
@@ -33,7 +33,7 @@ func CheckAndUpdate(currentVersion string, autoRestart bool) error {
 	helper.Info(helper.LogTypeSystem, "最新版本: %s", latest.Version)
 
 	// 比较版本
-	if v.GreaterThanOrEqual(latest.Version) {
+	if v != nil && v.GreaterThanOrEqual(latest.Version) {
 		helper.Info(helper.LogTypeSystem, "当前已是最新版本，无需更新")
 		return nil
 	}
@@ -42,7 +42,7 @@ func CheckAndUpdate(currentVersion string, autoRestart bool) error {
 	helper.Info(helper.LogTypeSystem, "发现新版本: %s -> %s", currentVersion, latest.Version.String())
 
 	// 询问用户是否确认更新
-	if !confirmUpdate() {
+	if !confirmPrompt() {
 		helper.Info(helper.LogTypeSystem, "已取消更新")
 		return nil
 	}
@@ -74,6 +74,8 @@ func CheckAndUpdate(currentVersion string, autoRestart bool) error {
 }
 
 // confirmUpdate 询问用户是否确认更新
+var confirmPrompt = confirmUpdate
+
 func confirmUpdate() bool {
 	fmt.Print("是否确认更新? [Y/n]: ")
 	reader := bufio.NewReader(os.Stdin)

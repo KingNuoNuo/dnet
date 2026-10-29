@@ -7,7 +7,8 @@ import (
 )
 
 // latestReleaseAPIURL 指向本 Fork 的发布仓库：自动更新只会升级到同一条版本线。
-const latestReleaseAPIURL = "https://api.github.com/repos/KingNuoNuo/dnet/releases/latest"
+// 用 var 而不是 const，方便测试替换接口地址（也允许构建期按需覆盖）。
+var latestReleaseAPIURL = "https://api.github.com/repos/KingNuoNuo/dnet/releases/latest"
 
 // GitHubRelease is the subset of a GitHub release used by the updater.
 type GitHubRelease struct {
@@ -58,7 +59,7 @@ func getLatest(client *http.Client, apiURL string) (*GitHubRelease, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API 返回错误状态码: %d", resp.StatusCode)
+		return nil, fmt.Errorf("API 返回错误状态码: %d（%s）", resp.StatusCode, apiURL)
 	}
 	var release GitHubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
