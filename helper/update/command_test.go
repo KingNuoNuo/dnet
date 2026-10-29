@@ -11,10 +11,13 @@ import (
 )
 
 // startAPIStub 提供一个假的 GitHub releases/latest 接口，
-// 资产按当前构建目标（windows/amd64 → x86_64）生成，避免测试触网。
+// 资产按当前构建目标的命名契约生成，避免测试触网。
 func startAPIStub(t *testing.T, tag string) *httptest.Server {
 	t.Helper()
-	archive := "dnet_" + tag[1:] + "_windows_x86_64.zip"
+	archive, err := currentBuildTarget().archiveName(tag[1:])
+	if err != nil {
+		t.Fatalf("current build target archive: %v", err)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		release := GitHubRelease{
