@@ -263,6 +263,56 @@ func TestWebSocketUpgradeAndShutdown(t *testing.T) {
 		t.Fatal("upgraded connection survived shutdown")
 	}
 }
+func TestCorazaWAFSwitch(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			fmt.Fprintf(w, "body:%s", body)
+			return
+		}
+		fmt.Fprint(w, "reached")
+	}))
+	defer upstream.Close()
+	rule := testRule(t, upstream.URL)
+	rule.WAFEnabled = true
+	m := NewManager()
+	defer m.Close()
+	if err := m.Apply([]Rule{rule}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	blocked := request(t, rule, rule.Domain, "/.git/config")
+	if blocked.StatusCode != http.StatusForbidden || blocked.Header.Get("X-DNET-WAF") != "blocked" {
+		t.Fatalf("attack request not blocked: %d %q", blocked.StatusCode, blocked.Header.Get("X-DNET-WAF"))
+	}
+	if got := body(t, request(t, rule, rule.Domain, "/index.html?q=ok")); got != "reached" {
+		t.Fatalf("benign request broken: %q", got)
+	}
+
+	// 请求体必须完整地穿过 WAF 交给后端。
+	req, _ := http.NewRequest("POST", "http://"+rule.address()+"/submit", strings.NewReader("q=hello"))
+	req.Host = rule.Domain
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 3 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := body(t, res); got != "body:q=hello" {
+		t.Fatalf("body lost through WAF: %q", got)
+	}
+
+	// 关掉开关后同样的探测请求应该到达后端。
+	off := rule
+	off.WAFEnabled = false
+	if err := m.Apply([]Rule{off}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := body(t, request(t, off, off.Domain, "/.git/config")); got != "reached" {
+		t.Fatal("WAF still inspecting after the switch was turned off")
+	}
+}
+
 func TestRejectLoopAndInvalidRules(t *testing.T) {
 	r := testRule(t, "http://127.0.0.1:3000")
 	r.Target = "http://" + r.address()

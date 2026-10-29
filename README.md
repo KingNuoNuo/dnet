@@ -29,7 +29,7 @@
 - **动态 CDN 管理 (DCDN)：** 根据 IP 变化自动更新 CDN 源站，支持阿里云（CDN、DCDN、ESA）、腾讯云（CDN、EdgeOne）、百度云（CDN、DRCDN）、Cloudflare、又拍云、自定义回调（Callback）
 - **动态 DNS 管理 (DDNS)：** 根据 IP 变化自动更新 DNS 解析，支持 **A / AAAA / CNAME / TXT** 记录，支持阿里云、腾讯云、百度云、Cloudflare、华为云、Dnspod、NameSilo、GoDaddy、DNSLA、Porkbun、自定义回调（Callback）。DNSLA 和 Porkbun 均支持上述四种记录类型；Porkbun 需开启目标域名的 API 访问。两者均要求同名同类型只有一条受管理记录，多条时会报错而不修改；CNAME 不能与同名其他记录同时配置。
 - **端口转发 (DPF)：** IPv4 / IPv6 入口转发到指定 IP 或域名，支持来源白名单、连接 / 会话数限制、超时设置和运行日志，支持 TCP/UDP 协议。
-- **Web 服务 (DWS)：** 支持反向代理、URL 跳转、HTTP 重定向和在线测速，支持 IPv4 / IPv6 双栈监听、多域名共用端口、WebSocket、HTTPS 入口和访问认证。
+- **Web 服务 (DWS)：** 支持反向代理、URL 跳转、HTTP 重定向和在线测速，支持 IPv4 / IPv6 双栈监听、多域名共用端口、WebSocket、HTTPS 入口和访问认证；每条规则可单独开启 Coraza WAF。
 - **SSL 证书管理（DSSL）：** 独立管理上传证书、本地证书文件及 ACME 自动申请和续期，支持 Let's Encrypt、HTTP 和 Cloudflare / 阿里云 / 腾讯云 DNSPod DNS。
 - **Webhook 通知：** 实时推送 IP 变更通知
 - **Web 管理界面：** 可视化配置和管理
@@ -52,6 +52,7 @@
 ### 功能增强
 
 - **服务商凭据全局化**：DNS / CDN 服务商的 AccessKey / Secret 统一在「系统设置」维护，各 DDNS / DCDN 规则引用凭据，升级时自动迁移旧凭据
+- **Coraza WAF**：Web 服务每条规则行可单独开启内置的 Coraza 引擎，检查请求行、请求头与请求体（前 1 MiB），命中内置规则直接返回 403 并在 DWS 日志中记录规则 ID 与来源 IP；规则集随二进制编译，无需外部文件
 - **防火墙自动放行**：端口转发与 Web 服务均可一键自动放行 WAN 入站，四级检测 `fw4 → fw3 → nft → iptables`，自适应 OpenWrt 与通用 Linux；只动 `dnet-` 前缀的自托管规则，与用户已有防火墙规则互不干扰
 - **证书申请进度**：ACME 申请各阶段（注册账户、写 DNS 记录、等待 CA 验证等）实时上报，悬浮状态格即可查看当前步骤
 
@@ -315,11 +316,11 @@ This repository is a fork of [cxbdasheng/dnet](https://github.com/cxbdasheng/dne
 
 | 指标 | 近 14 天 |
 | --- | ---: |
-| 页面浏览量 | 34 |
-| 独立访客 | 34 |
-| 克隆次数 | 93 |
-| 独立克隆者 | 36 |
+| 页面浏览量 | 1 |
+| 独立访客 | 1 |
+| 克隆次数 | 122 |
+| 独立克隆者 | 58 |
 
-<sub>数据窗口 2026-09-30 ~ 2026-10-13 · 由 GitHub Actions 每日更新于 2026-10-14 · 来源：GitHub Traffic API（仅统计最近 14 天）</sub>
+<sub>数据窗口 2026-10-15 ~ 2026-10-28 · 由 GitHub Actions 每日更新于 2026-10-29 · 来源：GitHub Traffic API（仅统计最近 14 天）</sub>
 
 <!-- traffic:end -->

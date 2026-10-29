@@ -23,7 +23,7 @@ func TestWebServiceAPISecretsAndValidation(t *testing.T) {
 	defer m.Close()
 	s := NewServer(repo, nil)
 	s.WebServices = m
-	rule := webservice.Rule{ID: "one", Name: "1", Domain: "nas.example.com", Network: "tcp4", ListenAddress: "127.0.0.1", ListenPort: 18080, Target: "http://127.0.0.1:3000", TimeoutSec: 30, AuthEnabled: true, Username: "visitor", Password: "secret-password"}
+	rule := webservice.Rule{ID: "one", Name: "1", Domain: "nas.example.com", Network: "tcp4", ListenAddress: "127.0.0.1", ListenPort: 18080, Target: "http://127.0.0.1:3000", TimeoutSec: 30, AuthEnabled: true, Username: "visitor", Password: "secret-password", WAFEnabled: true}
 	post := func(body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/api/webservice", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
@@ -35,6 +35,9 @@ func TestWebServiceAPISecretsAndValidation(t *testing.T) {
 	w := post(string(body))
 	if !decodeResult(t, w).Status || repo.conf.Username != "unchanged" || len(repo.conf.WebServiceRules) != 1 {
 		t.Fatal(w.Body.String())
+	}
+	if !repo.conf.WebServiceRules[0].WAFEnabled || !strings.Contains(w.Body.String(), `"waf_enabled":true`) {
+		t.Fatal("WAF switch lost through the API")
 	}
 	hash := repo.conf.WebServiceRules[0].PasswordHash
 	if hash == "" || repo.conf.WebServiceRules[0].Password != "" || strings.Contains(w.Body.String(), hash) || strings.Contains(w.Body.String(), "secret-password") {

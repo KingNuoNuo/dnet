@@ -32,7 +32,8 @@
   <body>
     <div class="layui-container">
       <p class="page-desc">
-        Web 服务 —— 通过反向代理把内网服务发布到公网。一个访问域名一行，改完保存即生效。
+        Web 服务 —— 通过反向代理把内网服务发布到公网。一个访问域名一行，改完保存即生效。每一行都可以单独打开
+        Coraza WAF。
       </p>
 
       <div class="dnet-stat" id="stat">
@@ -53,6 +54,10 @@
           <div class="kpi">
             <span class="k">监听入口</span>
             <span class="v dim" id="kpi-listen">—</span>
+          </div>
+          <div class="kpi">
+            <span class="k">Coraza WAF</span>
+            <span class="v" id="kpi-waf">—</span>
           </div>
         </div>
         <div class="s-act">
@@ -129,7 +134,7 @@
               + 添加一行
             </button>
             <p class="dnet-rules-hint">
-              一个访问域名一行。监听协议、监听 IP、认证、HTTPS
+              一个访问域名一行。监听协议、监听 IP、Coraza WAF、认证、HTTPS
               这些在行首的箭头里。同一监听入口（协议 + 地址 + 端口）必须使用相同的
               HTTPS 设置与证书；「备注」会作为配置名称出现在服务端日志与错误提示里。
             </p>
@@ -487,6 +492,10 @@
                 <label>监听 IP</label>
                 <input data-key="listen_address" aria-label="监听 IP" placeholder="0.0.0.0 或 ::" value="${esc(rule.listen_address)}">
               </div>
+              <div class="f">
+                <label>Coraza WAF</label>
+                <input type="checkbox" data-key="waf_enabled" lay-skin="switch" lay-text="开启|关闭" lay-filter="row-flag"${rule.waf_enabled ? " checked" : ""}>
+              </div>
               <div class="f" data-when="proxy">
                 <label>响应头超时（秒）</label>
                 <input data-key="timeout_sec" type="number" min="1" max="300" inputmode="numeric" aria-label="响应头超时" value="${esc(num(rule.timeout_sec))}">
@@ -530,6 +539,7 @@
                 与证书也必须一致。
               </p>
               <p class="note" data-type-help>${esc(TYPE_HELP[rule.type] || "")}</p>
+              <p class="note">Coraza WAF 由内置规则集检查请求行、请求头与请求体（前 1 MiB），命中即返回 403 并写入 DWS 日志；关闭后请求原样转发。</p>
             </div>`;
         return el;
       }
@@ -594,6 +604,9 @@
         document.querySelector("#kpi-listen").textContent = rules.length
           ? entries.size + " 个入口"
           : "—";
+        document.querySelector("#kpi-waf").textContent = enabled
+          ? rules.filter((r) => r.waf_enabled).length + " 个"
+          : "—";
         stat.classList.toggle("is-off", !enabled);
         stat.classList.toggle(
           "is-warn",
@@ -648,6 +661,7 @@
           certificate_id: "",
           certificate: "",
           key: "",
+          waf_enabled: false,
         };
       }
 

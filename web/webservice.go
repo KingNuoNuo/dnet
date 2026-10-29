@@ -89,7 +89,7 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 			helper.ReturnError(w, err.Error())
 			return
 		}
-		helper.Info(helper.LogTypeWebService, "配置保存并应用成功 [开启=%t, 配置数=%d]", payload.Enabled, len(rules))
+		helper.Info(helper.LogTypeWebService, "配置保存并应用成功 [开启=%t, 配置数=%d, WAF=%d]", payload.Enabled, len(rules), wafCount(rules))
 	}
 	helper.ReturnSuccess(w, "", struct {
 		Enabled      bool                `json:"enabled"`
@@ -97,4 +97,15 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 		Rules        []webservice.Rule   `json:"rules"`
 		Status       []webservice.Status `json:"status"`
 	}{conf.WebServiceEnabled, conf.WebAutoFirewall, webservice.PublicRules(conf.WebServiceRules), s.WebServices.Status()})
+}
+
+// wafCount 统计启用 Coraza WAF 的服务数，只用于保存日志。
+func wafCount(rules []webservice.Rule) int {
+	count := 0
+	for _, rule := range rules {
+		if rule.WAFEnabled {
+			count++
+		}
+	}
+	return count
 }

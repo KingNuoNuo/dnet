@@ -30,3 +30,24 @@ func TestWebServiceConfigSnapshotAndYAML(t *testing.T) {
 		t.Fatal("Web service config lost on YAML round trip")
 	}
 }
+
+func TestWebServiceWAFSwitchPersists(t *testing.T) {
+	conf := Config{
+		WebServiceEnabled: true,
+		WebServiceRules:   []webservice.Rule{{ID: "one", Name: "1", WAFEnabled: true}, {ID: "two", Name: "2"}},
+	}
+	body, err := yaml.Marshal(conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "waf_enabled: true") {
+		t.Fatal("WAF switch not written to YAML")
+	}
+	var loaded Config
+	if err := yaml.Unmarshal(body, &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.WebServiceRules) != 2 || !loaded.WebServiceRules[0].WAFEnabled || loaded.WebServiceRules[1].WAFEnabled {
+		t.Fatal("WAF switch lost on YAML round trip")
+	}
+}

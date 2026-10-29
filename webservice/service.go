@@ -18,6 +18,7 @@ import (
 
 	"github.com/cxbdasheng/dnet/certificates"
 	"github.com/cxbdasheng/dnet/helper"
+	"github.com/cxbdasheng/dnet/waf"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -44,6 +45,8 @@ type Rule struct {
 	Certificate   string `json:"certificate" yaml:"certificate"`
 	Key           string `json:"key" yaml:"key"`
 	TimeoutSec    int    `json:"timeout_sec" yaml:"timeout_sec"`
+	// WAFEnabled 为该服务单独打开内置的 Coraza WAF，命中规则直接返回 403。
+	WAFEnabled bool `json:"waf_enabled" yaml:"waf_enabled,omitempty"`
 }
 
 func (r Rule) serviceType() string {
@@ -291,7 +294,26 @@ func newSite(r Rule, rules []Rule) *site {
 			proxy.ServeHTTP(w, req)
 		}
 	})
+	if r.WAFEnabled {
+		// 内置规则集在 Apply 阶段已经解析过，这里只会复用同一个引擎。
+		// WAF 放在认证之前：恶意请求不必先通过一次 bcrypt 校验。
+		if engine, err := waf.Shared(); err == nil {
+			s.handler = engine.Handler(r.Name, s.handler)
+		}
+	}
 	return s
+}
+
+// prepareWAF parses the embedded Coraza rule set before any socket is opened,
+// so a broken rule set cannot leave half-applied listeners behind.
+func prepareWAF(rules []Rule) error {
+	for _, r := range rules {
+		if r.WAFEnabled {
+			_, err := waf.Shared()
+			return err
+		}
+	}
+	return nil
 }
 
 type group struct {
@@ -423,6 +445,9 @@ func (m *Manager) Status() []Status {
 }
 func (m *Manager) Apply(rules []Rule, save func() error) error {
 	if err := Validate(rules); err != nil {
+		return err
+	}
+	if err := prepareWAF(rules); err != nil {
 		return err
 	}
 	m.mu.Lock()
