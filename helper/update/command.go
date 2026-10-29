@@ -20,7 +20,7 @@ func CheckAndUpdate(currentVersion string, autoRestart bool) error {
 	v, err := NewVersion(currentVersion)
 	if err != nil {
 		helper.Warn(helper.LogTypeSystem, "当前版本 '%s' 不是语义化版本格式，无法自动更新", currentVersion)
-		helper.Info(helper.LogTypeSystem, "请手动下载最新版本: https://github.com/cxbdasheng/dnet/releases/latest")
+		helper.Info(helper.LogTypeSystem, "请手动下载最新版本: https://github.com/KingNuoNuo/dnet/releases/latest")
 		return fmt.Errorf("版本格式不正确: %w", err)
 	}
 

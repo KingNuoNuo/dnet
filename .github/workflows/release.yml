@@ -27,6 +27,9 @@ jobs:
           - { goos: linux,  goarch: amd64, ext: '',     archive: tar.gz }
           - { goos: linux,  goarch: arm64, ext: '',     archive: tar.gz }
           - { goos: linux,  goarch: arm,   goarm: '7',  ext: '', archive: tar.gz }
+          - { goos: linux,  goarch: arm,   goarm: '6',  ext: '', archive: tar.gz }
+          - { goos: linux,  goarch: arm,   goarm: '5',  ext: '', archive: tar.gz }
+          - { goos: linux,  goarch: '386', ext: '',     archive: tar.gz }
           - { goos: darwin, goarch: amd64, ext: '',     archive: tar.gz }
           - { goos: darwin, goarch: arm64, ext: '',     archive: tar.gz }
           - { goos: windows, goarch: amd64, ext: '.exe', archive: zip }
@@ -54,7 +57,15 @@ jobs:
           go build -trimpath \
             -ldflags "-s -w -X 'main.version=${GITHUB_REF_NAME}'" \
             -o "out/dnet${{ matrix.ext }}" .
-          NAME="dnet_${VERSION}_${GOOS}_${GOARCH}${GOARM:+v${GOARM}}"
+          # 资产名必须与 D-NET 自带更新器和 luci-app-dnet 的 arch 约定一致：
+          # amd64 → x86_64，386 → i386，arm → armv5/6/7。
+          case "${GOARCH}" in
+            amd64) ARCH=x86_64 ;;
+            386)   ARCH=i386 ;;
+            arm)   ARCH="armv${GOARM}" ;;
+            *)     ARCH="${GOARCH}" ;;
+          esac
+          NAME="dnet_${VERSION}_${GOOS}_${ARCH}"
           mkdir -p "dist/${NAME}"
           cp "out/dnet${{ matrix.ext }}" "dist/${NAME}/"
           cp README.md LICENSE "dist/${NAME}/" 2>/dev/null || true
@@ -97,6 +108,13 @@ jobs:
           merge-multiple: true
           path: dist
 
+      - name: Generate checksums.txt
+        run: |
+          cd dist
+          # D-NET 的 -u 与 luci-app-dnet 都要求一个 checksums.txt（sha256sum 两空格格式）。
+          sha256sum *.tar.gz *.zip > checksums.txt
+          cat checksums.txt
+
       - name: Generate release notes
         run: |
           {
@@ -114,6 +132,7 @@ jobs:
             echo "- 防火墙自动放行：四级检测 fw4 → fw3 → nft → iptables，自适应 OpenWrt 与通用 Linux；只动 dnet- 前缀规则，端口转发与 Web 服务共用"
             echo "- SSL 证书申请进度实时上报，悬浮状态格查看当前步骤"
             echo "- Coraza WAF：Web 服务每条规则可单独开启内置规则集，检查请求行、请求头与请求体（前 1 MiB），命中直接 403 并写 DWS 日志"
+            echo "- 自更新指向本仓库：\`dnet -u\` 只查询 KingNuoNuo/dnet 的 Releases，发布同时提供 checksums.txt 与 x86_64 / i386 / armv5-7 命名的资产"
             echo
             echo "### 命令行"
             echo "- \`dnet -h\` 输出完整中文帮助（参数说明、默认值、服务管理子命令与示例）"
@@ -133,5 +152,6 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/*.sha256
+            dist/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

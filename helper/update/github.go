@@ -6,7 +6,8 @@ import (
 	"net/http"
 )
 
-const latestReleaseAPIURL = "https://api.github.com/repos/cxbdasheng/dnet/releases/latest"
+// latestReleaseAPIURL 指向本 Fork 的发布仓库：自动更新只会升级到同一条版本线。
+const latestReleaseAPIURL = "https://api.github.com/repos/KingNuoNuo/dnet/releases/latest"
 
 // GitHubRelease is the subset of a GitHub release used by the updater.
 type GitHubRelease struct {
