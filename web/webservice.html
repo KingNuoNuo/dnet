@@ -658,7 +658,7 @@
         for (const node of document.querySelectorAll(
           "button,input,select,textarea",
         ))
-          node.disabled = disabled;
+          node.disabled = disabled || node.dataset.mandatory === "1";
         if (!disabled)
           for (const el of root.children) {
             const rule = rules.find((r) => r.id === el.dataset.id);
@@ -785,7 +785,7 @@
           host.innerHTML = waf.groups
             .map(
               (g) =>
-                `<input type="checkbox" lay-skin="primary" lay-filter="waf-group" value="${g.id}"${g.mandatory || !waf.disabled.has(g.id) ? " checked" : ""}${g.mandatory ? " disabled" : ""} title="${esc(`${g.id} ${g.name}`)}">`,
+                `<input type="checkbox" lay-skin="primary" lay-filter="waf-group" value="${g.id}"${g.mandatory || !waf.disabled.has(g.id) ? " checked" : ""}${g.mandatory ? " disabled data-mandatory=\"1\"" : ""} title="${esc(`${g.id} ${g.name}`)}">`,
             )
             .join("");
           form.render("checkbox");
