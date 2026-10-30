@@ -59,8 +59,7 @@ func makeDataToSign(w io.Writer, httpMethod string, vals url.Values) {
 }
 
 var (
-	encTilde = "%7E"         // '~' -> "%7E"
-	encBlank = []byte("%20") // ' ' -> "%20"
+	encTilde = "%7E" // '~' -> "%7E"
 	tilde    = []byte("~")
 )
 
@@ -86,7 +85,10 @@ func specialUrlEncode(in <-chan *strToEnc, w io.Writer) {
 			case '*', '/', '&', '=':
 				fmt.Fprintf(w, "%%%02X", ch)
 			case '+':
-				w.Write(encBlank)
+				// url.Values.Encode() 把空格写成 '+'。阿里云签名要求空格先编码成 %20，
+				// 再对整个规范串做一次百分号编码，因此这里必须输出 %2520；写成 %20
+				// 会让含空格的参数（例如 PEM 证书里的 "BEGIN CERTIFICATE"）签名对不上。
+				w.Write([]byte("%2520"))
 			default:
 				fmt.Fprintf(w, "%c", ch)
 			}

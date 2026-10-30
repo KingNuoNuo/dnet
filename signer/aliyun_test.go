@@ -1,6 +1,7 @@
 package signer
 
 import (
+	"bytes"
 	"net/http"
 	"net/url"
 	"strings"
@@ -412,5 +413,32 @@ func BenchmarkAliyunSigner(b *testing.B) {
 			p[k] = v
 		}
 		AliyunSigner("test-key", "test-secret", &p, http.MethodGet)
+	}
+}
+
+// TestAliyunSignInputDoubleEncodesSpaces 校验含空格的参数（PEM 证书）签名编码。
+// url.Values.Encode() 把空格写成 '+'，签名串里必须变成 %2520，否则服务端判签名不匹配。
+func TestAliyunSignInputDoubleEncodesSpaces(t *testing.T) {
+	vals := url.Values{}
+	vals.Set("Certificate", "-----BEGIN CERTIFICATE-----\nABC+/=\n")
+	vals.Set("Timestamp", "2026-10-30T07:00:00Z")
+	var buf bytes.Buffer
+	makeDataToSign(&buf, "POST", vals)
+	got := buf.String()
+
+	for _, want := range []string{
+		"-----BEGIN%2520CERTIFICATE-----",
+		"%250A",
+		"%252B",
+		"%252F",
+		"%253D",
+		"Timestamp%3D2026-10-30T07%253A00%253A00Z",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("sign input missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "BEGIN%20CERTIFICATE") {
+		t.Fatalf("space was only encoded once:\n%s", got)
 	}
 }

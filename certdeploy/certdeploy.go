@@ -88,7 +88,7 @@ func Deploy(ctx context.Context, conf config.Config, cert certificates.Certifica
 		case ProviderAliyunESA:
 			report, err := deployESA(ctx, conf, cert, target)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("阿里云 ESA: %w", err))
+				errs = append(errs, fmt.Errorf("阿里云 ESA: %s", clip(err.Error(), 400)))
 				continue
 			}
 			reports = append(reports, report)
@@ -100,6 +100,15 @@ func Deploy(ctx context.Context, conf config.Config, cert certificates.Certifica
 		return nil, fmt.Errorf("没有启用的部署目标")
 	}
 	return reports, errors.Join(errs...)
+}
+
+// clip 截断过长的错误信息：阿里云的 SignatureDoesNotMatch 会把整段证书回显出来。
+func clip(s string, limit int) string {
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	return string(runes[:limit]) + "…"
 }
 
 // aliyunCredential 复用「系统设置 → 服务商凭据」里的 aliyun 凭据（DCDN 优先，其次 DDNS）。
@@ -168,24 +177,51 @@ func newESAClient(accessKey, secret string) *esaClient {
 	}
 }
 
-// call 走阿里云 RPC 风格接口。证书内容有几 KB，用 POST 表单避免 URL 过长。
-func (c *esaClient) call(ctx context.Context, action string, params url.Values, out any) error {
-	params.Set("Action", action)
-	params.Set("Version", esaAPIVersion)
-	signer.AliyunSigner(c.accessKey, c.secret, &params, http.MethodPost)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, strings.NewReader(params.Encode()))
+// call 走阿里云 RPC 风格接口。
+//
+// ESA 网关对 SetCertificate 只接受 POST，且 Action/Version/公共签名参数必须放在
+// query 上、业务参数（证书、私钥等）放在 form body 里；签名覆盖两者。GET 会被
+// 拒绝成 UnsupportedHTTPMethod，所以这里按方法分别组装。
+func (c *esaClient) call(ctx context.Context, method, action string, params url.Values, out any) error {
+	all := url.Values{}
+	for key, values := range params {
+		all[key] = values
+	}
+	all.Set("Action", action)
+	all.Set("Version", esaAPIVersion)
+	signer.AliyunSigner(c.accessKey, c.secret, &all, method)
+
+	query := all
+	var payload io.Reader
+	if method == http.MethodPost {
+		query = url.Values{}
+		form := url.Values{}
+		for key, values := range all {
+			switch key {
+			case "Action", "Version", "Signature", "SignatureMethod", "SignatureNonce",
+				"AccessKeyId", "SignatureVersion", "Timestamp", "Format", "SecurityToken":
+				query[key] = values
+			default:
+				form[key] = values
+			}
+		}
+		payload = strings.NewReader(form.Encode())
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.endpoint+"?"+query.Encode(), payload)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if method == http.MethodPost {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", action, err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", action, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		var apiErr struct {
@@ -194,12 +230,12 @@ func (c *esaClient) call(ctx context.Context, action string, params url.Values, 
 			RequestId string `json:"RequestId"`
 		}
 		if json.Unmarshal(body, &apiErr) == nil && apiErr.Code != "" {
-			return fmt.Errorf("%s: %s", apiErr.Code, apiErr.Message)
+			return fmt.Errorf("%s: %s: %s", action, apiErr.Code, apiErr.Message)
 		}
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return fmt.Errorf("%s: HTTP %d: %s", action, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("解析接口响应失败: %w", err)
+		return fmt.Errorf("%s: 解析接口响应失败: %w", action, err)
 	}
 	return nil
 }
@@ -225,7 +261,7 @@ func deployESA(ctx context.Context, conf config.Config, cert certificates.Certif
 	}
 	params := url.Values{}
 	params.Set("SiteName", site)
-	if err := client.call(ctx, "ListSites", params, &sites); err != nil {
+	if err := client.call(ctx, http.MethodGet, "ListSites", params, &sites); err != nil {
 		return Report{}, err
 	}
 	if sites.TotalCount == 0 || len(sites.Sites) == 0 {
@@ -244,7 +280,7 @@ func deployESA(ctx context.Context, conf config.Config, cert certificates.Certif
 	listParams := url.Values{}
 	listParams.Set("SiteId", strconv.FormatInt(siteID, 10))
 	listParams.Set("Keyword", name)
-	if err := client.call(ctx, "ListCertificates", listParams, &existing); err != nil {
+	if err := client.call(ctx, http.MethodGet, "ListCertificates", listParams, &existing); err != nil {
 		return Report{}, err
 	}
 
@@ -265,7 +301,7 @@ func deployESA(ctx context.Context, conf config.Config, cert certificates.Certif
 	var result struct {
 		ID string `json:"Id"`
 	}
-	if err := client.call(ctx, "SetCertificate", setParams, &result); err != nil {
+	if err := client.call(ctx, http.MethodPost, "SetCertificate", setParams, &result); err != nil {
 		return Report{}, err
 	}
 	return Report{Provider: ProviderAliyunESA, Site: site, CertName: name, CertID: result.ID, Updated: updated}, nil
