@@ -56,10 +56,50 @@
 - **自更新指向本仓库**：`dnet -u` 只查询 `KingNuoNuo/dnet` 的 Releases，不会再误检测上游版本；发布流水线同时产出 `checksums.txt` 与 `x86_64 / i386 / armv5-7` 命名的资产
 - **防火墙自动放行**：端口转发与 Web 服务均可一键自动放行 WAN 入站，四级检测 `fw4 → fw3 → nft → iptables`，自适应 OpenWrt 与通用 Linux；只动 `dnet-` 前缀的自托管规则，与用户已有防火墙规则互不干扰
 - **证书申请进度**：ACME 申请各阶段（注册账户、写 DNS 记录、等待 CA 验证等）实时上报，悬浮状态格即可查看当前步骤
+- **配置密钥加密**：云厂商 AccessKey/Secret、ACME 账号密钥、证书私钥、Webhook 地址可选用主密钥加密后落盘（AES-256-GCM，`enc:v1:` 前缀），明文配置可一键迁移；缺主密钥且配置已是密文时拒绝启动，不会把密文当明文用
 
 ### 命令行
 
 - `dnet -h` 输出完整中文帮助（参数说明、默认值、服务管理子命令与示例）
+- `dnet -secret init|encrypt|decrypt|status` 管理配置密钥（见下节）
+
+### 配置文件加密
+
+> 前提认知：主密钥和配置在同一台设备上时，加密**防的是「配置文件被看到」**（备份、网盘同步、发给别人排障、截图），**防不住拿到 root 或拆走闪存的人**。要防物理访问需要 dm-crypt/fscrypt，路由器一般做不到。
+
+默认只有登录密码是 bcrypt，其余密钥都是明文。启用后：
+
+| 会加密 | 保持明文 |
+| --- | --- |
+| 证书 `access_key` / `api_token` / `account_key` / `eab_hmac_key` / `key_pem` | 域名、端口、备注、规则开关 |
+| DCDN / DDNS 的 `access_key` / `access_secret`（含服务商全局凭据） | 证书 `cert_pem`（公钥证书） |
+| Webhook 地址与请求头 | 登录密码（本来就是 bcrypt 哈希） |
+
+主密钥来源优先级：环境变量 `DNET_SECRET_KEY` → `DNET_SECRET_KEY_FILE` → 配置文件同目录的 `master.key`（如 `/etc/dnet/master.key`，权限 0600）。
+
+```bash
+# 1. 生成主密钥（已存在则不会覆盖）
+dnet -secret init
+
+# 2. 查看状态：哪些字段已加密、主密钥来自哪里
+dnet -secret status
+
+# 3. 把现有明文密钥就地加密（自动备份为 config.yaml.bak.<时间>）
+dnet -secret encrypt
+
+# 4. 重启生效
+/etc/init.d/dnet restart
+```
+
+之后从 Web 界面保存配置也会自动加密。轮换主密钥：
+
+```bash
+dnet -secret decrypt          # 用旧密钥解回明文（会备份）
+# 备份并删除旧 master.key，重新 dnet -secret init 生成新密钥
+dnet -secret encrypt
+```
+
+**务必离线备份 `master.key`**：丢了它，配置里已加密的云厂商密钥和 ACME 账号密钥无法恢复（服务会拒绝启动并提示缺少主密钥）。`DNET_SECRET_KEY` 适合 Docker / systemd 从密钥管理服务注入，避免密钥落到磁盘。
 
 ## 快速开始
 

@@ -48,6 +48,9 @@ var serviceType = flag.String("s", "", "Service management (install|uninstall|re
 // 重置密码
 var newPassword = flag.String("resetPassword", "", "Reset password to the one entered")
 
+// 配置密钥工具（init / encrypt / decrypt / status）
+var secretMode = flag.String("secret", "", "Config secret tool (init|encrypt|decrypt|status)")
+
 // 自定义 DNS 服务器
 var customDNS = flag.String("dns", "", "Custom DNS server address, example: 8.8.8.8")
 
@@ -102,6 +105,7 @@ func printUsage() {
 	fmt.Println("  -dcdnCacheTimes <N>    每隔 N 次强制同步一次 CDN 记录")
 	fmt.Println("  -ddnsCacheTimes <N>    每隔 N 次强制同步一次 DNS 记录")
 	fmt.Println("  -resetPassword <密码>  重置 Web 登录密码")
+	fmt.Println("  -secret <子命令>       配置密钥工具：init / encrypt / decrypt / status")
 	fmt.Println("  -v                     显示版本号")
 	fmt.Println("  -h                     显示本帮助")
 	fmt.Println()
@@ -109,6 +113,8 @@ func printUsage() {
 	fmt.Println("  dnet -s install -l :9877 -f 300 -c /path/to/config.yaml")
 	fmt.Println("  dnet -s uninstall")
 	fmt.Println("  dnet -resetPassword newpass")
+	fmt.Println("  dnet -secret init          生成主密钥，之后保存配置会自动加密密钥字段")
+	fmt.Println("  dnet -secret encrypt       把现有明文密钥就地加密")
 	fmt.Println()
 	fmt.Println("更多文档：https://github.com/cxbdasheng/dnet/wiki")
 }
@@ -144,6 +150,12 @@ func main() {
 		os.Setenv(config.PathENV, absPath)
 	}
 
+	// 配置密钥工具：执行完就退出，不启动服务
+	if *secretMode != "" {
+		runSecretCommand(*secretMode)
+		return
+	}
+
 	if runtime.GOOS == "android" {
 		helper.FixTimezone()
 	}
@@ -175,6 +187,11 @@ func main() {
 			}
 		}
 	} else {
+		// 配置里有密文但解不开（没主密钥 / 主密钥不对）时必须停在这里，
+		// 否则会带着空配置启动，把云厂商记录当成「没配过」。
+		if config.IsSecretError(err) {
+			helper.Fatalf(helper.LogTypeSystem, "读取配置失败，已停止启动: %v", err)
+		}
 		helper.Warn(helper.LogTypeSystem, "启动时读取配置失败，跳过服务商凭据迁移: %v", err)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -157,10 +158,12 @@ func (conf Config) clone() Config {
 	for i := range conf.DCDN {
 		conf.DCDN[i].Sources = slices.Clone(conf.DCDN[i].Sources)
 	}
+	conf.DCDNConfig.Credentials = slices.Clone(conf.DCDNConfig.Credentials)
 	conf.DDNS = slices.Clone(conf.DDNS)
 	for i := range conf.DDNS {
 		conf.DDNS[i].Records = slices.Clone(conf.DDNS[i].Records)
 	}
+	conf.DDNSConfig.Credentials = slices.Clone(conf.DDNSConfig.Credentials)
 	return conf
 }
 
@@ -231,6 +234,13 @@ func (c *ConfigCache) loadConfig(configFilePath string) (Config, error) {
 		return c.config.clone(), err
 	}
 
+	// 解密敏感字段。有密文但没主密钥 / 主密钥不匹配时直接报错，
+	// 上层应拒绝启动，绝不能拿密文当明文去连云厂商。
+	if err = c.config.DecryptSecrets(); err != nil {
+		c.err = err
+		return c.config.clone(), err
+	}
+
 	c.err = nil
 	return c.config.clone(), nil
 }
@@ -240,7 +250,15 @@ func (conf *Config) SaveConfig() error {
 	globalCache.mu.Lock()
 	defer globalCache.mu.Unlock()
 
-	data, err := yaml.Marshal(conf)
+	// 落盘的是密文快照，内存里的 conf 保持明文供运行时使用。
+	// 没配置主密钥时保持明文（向后兼容），配置了就必须加密成功，否则拒绝写入，
+	// 避免「以为加密了其实还是明文」。
+	snapshotConf := conf.clone()
+	if err := snapshotConf.EncryptSecrets(); err != nil && !errors.Is(err, ErrNoSecretKey) {
+		helper.Error(helper.LogTypeConfig, "加密敏感配置失败: %v", err)
+		return err
+	}
+	data, err := yaml.Marshal(&snapshotConf)
 	if err != nil {
 		helper.Error(helper.LogTypeConfig, "序列化配置失败: %v", err)
 		return err
