@@ -63,7 +63,7 @@ make run            # 构建并运行（默认监听 :9877）
 | `signer` | 云服务商 API 请求签名（阿里云、腾讯云、百度云、华为云） |
 | `web` | 内嵌 Web UI 的 HTTP 处理器（首页、dcdn、ddns、设置、日志、webhook、登录/登出） |
 | `webservice` | Web 服务（DWS）反向代理 / 跳转 / 重定向 / 测速的监听与路由管理 |
-| `waf` | 内置 Coraza 规则集（`rules.conf`，编译期嵌入）与按服务复用的请求检查中间件 |
+| `waf` | 内置 OWASP CRS（`coraza-coreruleset`，编译期嵌入）与按服务复用的请求检查中间件；规则组与自定义 SecLang 可配置 |
 
 ### 新增 CDN/DNS 服务商
 

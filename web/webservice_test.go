@@ -16,6 +16,54 @@ type failingWebRepository struct{ stubRepository }
 
 func (r *failingWebRepository) Save(*config.Config) error { return errors.New("save failed") }
 
+func TestWebServiceAPIWAFSelection(t *testing.T) {
+	repo := &stubRepository{}
+	m := webservice.NewManager()
+	defer m.Close()
+	s := NewServer(repo, nil)
+	s.WebServices = m
+	rule := webservice.Rule{ID: "one", Name: "1", Domain: "nas.example.com", Network: "tcp4", ListenAddress: "127.0.0.1", ListenPort: 18080, Target: "http://127.0.0.1:3000", TimeoutSec: 30, WAFEnabled: true}
+	post := func(payload map[string]any) *httptest.ResponseRecorder {
+		payload["rules"] = []webservice.Rule{rule}
+		body, _ := json.Marshal(payload)
+		r := httptest.NewRequest("POST", "/api/webservice", strings.NewReader(string(body)))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		s.WebServiceAPI(w, r)
+		return w
+	}
+
+	w := post(map[string]any{
+		"enabled":      false,
+		"waf_disabled": []int{942, 424242, 942},
+		"waf_custom":   `SecRule ARGS:probe "@rx x" "id:199999,phase:2,deny"`,
+	})
+	if !decodeResult(t, w).Status {
+		t.Fatal(w.Body.String())
+	}
+	// 未知/重复的组 ID 被归一化；自定义规则与选择一起落盘。
+	if len(repo.conf.WAFDisabledGroups) != 1 || repo.conf.WAFDisabledGroups[0] != 942 {
+		t.Fatalf("WAFDisabledGroups = %v", repo.conf.WAFDisabledGroups)
+	}
+	if repo.conf.WAFCustomDirectives == "" {
+		t.Fatal("custom directives not persisted")
+	}
+	for _, want := range []string{`"groups"`, `"disabled"`, `"custom"`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Fatalf("response missing %s: %s", want, w.Body.String())
+		}
+	}
+
+	// 自定义 SecLang 编译失败时整个保存必须失败，配置保持原样。
+	before := repo.conf.WAFCustomDirectives
+	if decodeResult(t, post(map[string]any{"enabled": false, "waf_custom": "This is not SecLang"})).Status {
+		t.Fatal("invalid custom directives accepted")
+	}
+	if repo.conf.WAFCustomDirectives != before {
+		t.Fatal("failed save changed WAF directives")
+	}
+}
+
 func TestWebServiceAPISecretsAndValidation(t *testing.T) {
 	repo := &stubRepository{}
 	repo.conf.Username = "unchanged"

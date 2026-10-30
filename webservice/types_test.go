@@ -20,7 +20,7 @@ func TestServiceTypes(t *testing.T) {
 			if err := Validate([]Rule{r}); err != nil {
 				t.Fatal(err)
 			}
-			s := newSite(r, nil)
+			s := newSite(r, nil, nil)
 			defer s.transport.CloseIdleConnections()
 			w := httptest.NewRecorder()
 			s.handler.ServeHTTP(w, httptest.NewRequest("GET", "http://one.example/original", nil))
@@ -45,7 +45,7 @@ func TestServiceTypes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			secured := newSite(rules[0], nil)
+			secured := newSite(rules[0], nil, nil)
 			defer secured.transport.CloseIdleConnections()
 			w = httptest.NewRecorder()
 			secured.handler.ServeHTTP(w, httptest.NewRequest("GET", "http://one.example/?dws_test=download&bytes=8", nil))
@@ -63,7 +63,7 @@ func TestRedirectCodesAndValidation(t *testing.T) {
 		if err := Validate([]Rule{r}); err != nil {
 			t.Fatal(err)
 		}
-		s := newSite(r, nil)
+		s := newSite(r, nil, nil)
 		w := httptest.NewRecorder()
 		s.handler.ServeHTTP(w, httptest.NewRequest("POST", "http://one.example/", strings.NewReader("body")))
 		s.transport.CloseIdleConnections()

@@ -76,6 +76,11 @@ type Config struct {
 	// WebAutoFirewall 与 ForwardAutoFirewall 同理：把 Web 服务里监听在通配
 	// 地址的规则端口加进防火墙放行，与端口转发共用同一套 dnet- 前缀规则。
 	WebAutoFirewall bool `json:"web_auto_firewall" yaml:"web_auto_firewall,omitempty"`
+	// WAFDisabledGroups 是全局关闭的内置 OWASP CRS 规则组 ID（如 941/942）；
+	// 为空表示全部检测组开启。框架组（901/949 等）始终加载，不能关闭。
+	WAFDisabledGroups []int `json:"waf_disabled_groups" yaml:"waf_disabled_groups,omitempty"`
+	// WAFCustomDirectives 追加在内置 CRS 之后的用户 SecLang 规则。
+	WAFCustomDirectives string `json:"waf_custom_directives" yaml:"waf_custom_directives,omitempty"`
 	// 语言
 	Lang string
 }
@@ -91,6 +96,7 @@ func (conf Config) ActiveForwardRules() []forward.Rule {
 // clone returns an owned snapshot, including nested mutable slices.
 func (conf Config) clone() Config {
 	conf.WebServiceRules = slices.Clone(conf.WebServiceRules)
+	conf.WAFDisabledGroups = slices.Clone(conf.WAFDisabledGroups)
 	conf.Certificates = certificates.Clone(conf.Certificates)
 	conf.ForwardRules = forward.Clone(conf.ForwardRules)
 	conf.DCDN = slices.Clone(conf.DCDN)

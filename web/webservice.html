@@ -111,6 +111,36 @@
             </div>
 
             <div class="dnet-group">
+              <span class="t">Coraza WAF 规则</span>
+            </div>
+
+            <div class="layui-form-item">
+              <label class="layui-form-label">内置规则组：</label>
+              <div class="layui-input-block" id="waf-groups"></div>
+            </div>
+            <div class="layui-form-mid layui-word-aux" style="margin: 0 0 12px 110px">
+              内置 OWASP CRS（与 Lucky 同源）。901/949 等框架组始终启用，其余按需勾选；
+              单个站点误报时优先关掉对应规则组。默认只放行 GET/HEAD/POST/OPTIONS（911 组），
+              WebDAV/PUT/DELETE 场景请取消勾选 911。低配路由器初始化 CRS 需要数秒与额外内存。
+            </div>
+
+            <div class="layui-form-item">
+              <label class="layui-form-label" for="waf-custom">自定义规则：</label>
+              <div class="layui-input-block">
+                <textarea
+                  id="waf-custom"
+                  class="layui-textarea"
+                  spellcheck="false"
+                  style="min-height: 110px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px"
+                  placeholder="SecRule ARGS:probe &quot;@rx test&quot; &quot;id:199999,phase:2,deny,log,msg:'自定义规则'&quot;"
+                ></textarea>
+              </div>
+            </div>
+            <div class="layui-form-mid layui-word-aux" style="margin: 0 0 12px 110px">
+              SecLang 规则追加在内置 CRS 之后。CRS 的 block 是占位动作（默认只记录），自定义阻断请写 deny。
+            </div>
+
+            <div class="dnet-group">
               <span class="t">服务列表</span>
             </div>
 
@@ -176,6 +206,7 @@
         busy = false,
         loaded = false;
       const expanded = new Set(); // 展开了高级设置的行 id
+      const waf = { groups: [], disabled: new Set(), custom: "" };
 
       const TYPES = [
         ["proxy", "反向代理"],
@@ -539,7 +570,7 @@
                 与证书也必须一致。
               </p>
               <p class="note" data-type-help>${esc(TYPE_HELP[rule.type] || "")}</p>
-              <p class="note">Coraza WAF 由内置规则集检查请求行、请求头与请求体（前 1 MiB），命中即返回 403 并写入 DWS 日志；关闭后请求原样转发。</p>
+              <p class="note">Coraza WAF 由内置 OWASP CRS 检查请求行、请求头与请求体（上限 13 MiB，超出部分继续转发），命中即返回 403 并写入 DWS 日志；规则组与自定义规则在页面上方「Coraza WAF 规则」里统一配置，关闭后请求原样转发。</p>
             </div>`;
         return el;
       }
@@ -624,7 +655,9 @@
         controls(busy || !loaded);
       }
       function controls(disabled) {
-        for (const node of document.querySelectorAll("button,input,select"))
+        for (const node of document.querySelectorAll(
+          "button,input,select,textarea",
+        ))
           node.disabled = disabled;
         if (!disabled)
           for (const el of root.children) {
@@ -738,8 +771,29 @@
         if (!rules.length) rules.push(newRule());
         for (const rule of rules) if (!rule.name) rule.name = rule.domain || "";
         status = data.status || [];
+        const view = data.waf || {};
+        waf.groups = view.groups || [];
+        waf.disabled = new Set(view.disabled || []);
+        waf.custom = view.custom || "";
         dirty = false;
         renderAll();
+        renderWAF(true);
+      }
+      function renderWAF(resetCustom) {
+        const host = document.querySelector("#waf-groups");
+        if (host) {
+          host.innerHTML = waf.groups
+            .map(
+              (g) =>
+                `<input type="checkbox" lay-skin="primary" lay-filter="waf-group" value="${g.id}"${g.mandatory || !waf.disabled.has(g.id) ? " checked" : ""}${g.mandatory ? " disabled" : ""} title="${esc(`${g.id} ${g.name}`)}">`,
+            )
+            .join("");
+          form.render("checkbox");
+        }
+        if (resetCustom) {
+          const custom = document.querySelector("#waf-custom");
+          if (custom) custom.value = waf.custom;
+        }
       }
       async function submit() {
         if (busy || !loaded) return;
@@ -773,6 +827,8 @@
           const data = await api({
             enabled,
             auto_firewall: autoFirewall,
+            waf_disabled: Array.from(waf.disabled).sort((a, b) => a - b),
+            waf_custom: waf.custom,
             rules: rules.map((rule) => ({ ...rule, has_password: undefined })),
           });
           if (!data) {
@@ -874,6 +930,18 @@
       });
       form.on("switch(global-autofw)", (data) => {
         autoFirewall = data.elem.checked;
+        markDirty();
+      });
+      // WAF 规则组勾选：记录被关闭的组；自定义规则随输入更新。
+      form.on("checkbox(waf-group)", (data) => {
+        const id = Number(data.elem.value);
+        if (!id) return;
+        if (data.elem.checked) waf.disabled.delete(id);
+        else waf.disabled.add(id);
+        markDirty();
+      });
+      document.querySelector("#waf-custom").addEventListener("input", (e) => {
+        waf.custom = e.target.value;
         markDirty();
       });
       // 行内的开关统一走一个 filter：layui 的开关不会触发原生 change，

@@ -281,7 +281,7 @@ func TestCorazaWAFSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	blocked := request(t, rule, rule.Domain, "/.git/config")
+	blocked := request(t, rule, rule.Domain, "/try?test=../../")
 	if blocked.StatusCode != http.StatusForbidden || blocked.Header.Get("X-DNET-WAF") != "blocked" {
 		t.Fatalf("attack request not blocked: %d %q", blocked.StatusCode, blocked.Header.Get("X-DNET-WAF"))
 	}
@@ -308,8 +308,59 @@ func TestCorazaWAFSwitch(t *testing.T) {
 	if err := m.Apply([]Rule{off}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := body(t, request(t, off, off.Domain, "/.git/config")); got != "reached" {
+	if got := body(t, request(t, off, off.Domain, "/try?test=../../")); got != "reached" {
 		t.Fatal("WAF still inspecting after the switch was turned off")
+	}
+}
+
+func TestWAFRuleGroupsSelectable(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "reached")
+	}))
+	defer upstream.Close()
+	rule := testRule(t, upstream.URL)
+	rule.WAFEnabled = true
+	m := NewManager()
+	defer m.Close()
+
+	// 关掉 SQL 注入组（942）后注入请求直通后端，其余组（XSS）仍然拦截。
+	m.SetWAF([]int{942}, "")
+	if err := m.Apply([]Rule{rule}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := body(t, request(t, rule, rule.Domain, `/search?id=1%27%20or%20%271%27%3D%271`)); got != "reached" {
+		t.Fatalf("disabled sqli group still blocked: %q", got)
+	}
+	if code := request(t, rule, rule.Domain, `/search?q=%3Csvg%2Fonload%3Dalert(1)%3E`).StatusCode; code != http.StatusForbidden {
+		t.Fatalf("xss not blocked: %d", code)
+	}
+
+	// 恢复默认（全部检测组开启）后同一注入请求被拦截。
+	m.SetWAF(nil, "")
+	if err := m.Apply([]Rule{rule}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if code := request(t, rule, rule.Domain, `/search?id=1%27%20or%20%271%27%3D%271`).StatusCode; code != http.StatusForbidden {
+		t.Fatalf("sqli not blocked after re-enabling: %d", code)
+	}
+}
+
+func TestWAFInvalidCustomDirectivesRejectApply(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "reached")
+	}))
+	defer upstream.Close()
+	rule := testRule(t, upstream.URL)
+	rule.WAFEnabled = true
+	m := NewManager()
+	defer m.Close()
+	m.SetWAF(nil, "This is not SecLang")
+	if err := m.Apply([]Rule{rule}, nil); err == nil {
+		t.Fatal("invalid custom directives accepted")
+	}
+	// 失败时不能留下监听。
+	if status := m.Status(); len(status) != 0 {
+		t.Fatalf("listeners leaked: %+v", status)
 	}
 }
 

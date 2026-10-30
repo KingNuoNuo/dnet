@@ -213,7 +213,7 @@ type site struct {
 
 var jumpPage = template.Must(template.New("jump").Parse(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>正在跳转</title></head><body><p>正在跳转，如未自动跳转，请<a href="{{.}}">点击继续</a>。</p><script>window.location.replace({{.}});</script></body></html>`))
 
-func newSite(r Rule, rules []Rule) *site {
+func newSite(r Rule, rules []Rule, engine *waf.Engine) *site {
 	target, _ := url.Parse(r.Target)
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
@@ -294,26 +294,38 @@ func newSite(r Rule, rules []Rule) *site {
 			proxy.ServeHTTP(w, req)
 		}
 	})
-	if r.WAFEnabled {
-		// 内置规则集在 Apply 阶段已经解析过，这里只会复用同一个引擎。
+	if r.WAFEnabled && engine != nil {
+		// 内置规则集在 Apply 阶段已经解析过，这里只复用同一个引擎。
 		// WAF 放在认证之前：恶意请求不必先通过一次 bcrypt 校验。
-		if engine, err := waf.Shared(); err == nil {
-			s.handler = engine.Handler(r.Name, s.handler)
-		}
+		s.handler = engine.Handler(r.Name, s.handler)
 	}
 	return s
 }
 
-// prepareWAF parses the embedded Coraza rule set before any socket is opened,
-// so a broken rule set cannot leave half-applied listeners behind.
-func prepareWAF(rules []Rule) error {
+// prepareWAF 在开监听前解析内置 CRS，规则写错会直接让 Apply 失败，
+// 不会留下半套监听。没有服务开启 WAF、也没有自定义规则/关闭组时跳过解析，
+// 避免不启用 WAF 的用户承担 CRS 的初始化开销。
+func (m *Manager) prepareWAF(rules []Rule) (*waf.Engine, error) {
+	needed := m.wafCustom != "" || len(m.wafDisabled) > 0
 	for _, r := range rules {
 		if r.WAFEnabled {
-			_, err := waf.Shared()
-			return err
+			needed = true
+			break
 		}
 	}
-	return nil
+	if !needed {
+		return nil, nil
+	}
+	return waf.Configure(m.wafDisabled, m.wafCustom)
+}
+
+// SetWAF 更新全局 WAF 规则选择（关闭的规则组 + 自定义 SecLang）。
+// 与 Apply 一起在配置保存时调用；引擎只在选择变化时重建。
+func (m *Manager) SetWAF(disabled []int, custom string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.wafDisabled = waf.NormalizeDisabled(disabled)
+	m.wafCustom = strings.TrimSpace(custom)
 }
 
 type group struct {
@@ -418,9 +430,11 @@ type Status struct {
 	Listening bool   `json:"listening"`
 }
 type Manager struct {
-	mu     sync.Mutex
-	groups map[string]*group
-	closed bool
+	mu          sync.Mutex
+	groups      map[string]*group
+	closed      bool
+	wafDisabled []int
+	wafCustom   string
 }
 
 func NewManager() *Manager { return &Manager{groups: map[string]*group{}} }
@@ -447,13 +461,14 @@ func (m *Manager) Apply(rules []Rule, save func() error) error {
 	if err := Validate(rules); err != nil {
 		return err
 	}
-	if err := prepareWAF(rules); err != nil {
-		return err
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
 		return fmt.Errorf("Web 服务已停止")
+	}
+	engine, err := m.prepareWAF(rules)
+	if err != nil {
+		return err
 	}
 	rules = listenerRules(rules)
 	next := map[string]*group{}
@@ -475,7 +490,7 @@ func (m *Manager) Apply(rules []Rule, save func() error) error {
 		if routes[key] == nil {
 			routes[key] = map[string]*site{}
 		}
-		routes[key][domain(r.Domain)] = newSite(r, rules)
+		routes[key][domain(r.Domain)] = newSite(r, rules, engine)
 		if next[key] != nil {
 			continue
 		}

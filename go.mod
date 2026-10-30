@@ -3,6 +3,7 @@ module github.com/cxbdasheng/dnet
 go 1.26.10
 
 require (
+	github.com/corazawaf/coraza-coreruleset/v4 v4.25.0
 	github.com/corazawaf/coraza/v3 v3.8.1
 	github.com/kardianos/service v1.3.0
 	golang.org/x/crypto v0.57.0

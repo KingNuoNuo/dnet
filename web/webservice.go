@@ -10,6 +10,7 @@ import (
 
 	"github.com/cxbdasheng/dnet/forward"
 	"github.com/cxbdasheng/dnet/helper"
+	"github.com/cxbdasheng/dnet/waf"
 	"github.com/cxbdasheng/dnet/webservice"
 )
 
@@ -57,6 +58,8 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
 			Enabled      bool              `json:"enabled"`
 			AutoFirewall bool              `json:"auto_firewall"`
+			WAFDisabled  []int             `json:"waf_disabled"`
+			WAFCustom    string            `json:"waf_custom"`
 			Rules        []webservice.Rule `json:"rules"`
 		}
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
@@ -76,11 +79,16 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		conf.WebServiceEnabled = payload.Enabled
 		conf.WebAutoFirewall = payload.AutoFirewall
+		conf.WAFDisabledGroups = waf.NormalizeDisabled(payload.WAFDisabled)
+		conf.WAFCustomDirectives = payload.WAFCustom
 		conf.WebServiceRules = rules
 		active := rules
 		if !payload.Enabled {
 			active = nil
 		}
+		// WAF 规则组选择在应用监听前生效；规则写错会在 Apply 阶段报错，
+		// 不会留下半套监听。
+		s.WebServices.SetWAF(conf.WAFDisabledGroups, conf.WAFCustomDirectives)
 		// 防火墙放行：与端口转发共用 forward.SyncFirewall 的对账机制，
 		// 这里只维护 Web 服务自己的期望端口（禁用或关闭开关时清空）。
 		forward.SetExtraFirewallPorts(webservice.FirewallPorts(conf.WebAutoFirewall && payload.Enabled, active))
@@ -91,12 +99,28 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		helper.Info(helper.LogTypeWebService, "配置保存并应用成功 [开启=%t, 配置数=%d, WAF=%d]", payload.Enabled, len(rules), wafCount(rules))
 	}
+	groups, err := waf.Catalog()
+	if err != nil {
+		helper.ReturnError(w, err.Error())
+		return
+	}
 	helper.ReturnSuccess(w, "", struct {
 		Enabled      bool                `json:"enabled"`
 		AutoFirewall bool                `json:"auto_firewall"`
 		Rules        []webservice.Rule   `json:"rules"`
 		Status       []webservice.Status `json:"status"`
-	}{conf.WebServiceEnabled, conf.WebAutoFirewall, webservice.PublicRules(conf.WebServiceRules), s.WebServices.Status()})
+		Waf          wafView             `json:"waf"`
+	}{conf.WebServiceEnabled, conf.WebAutoFirewall, webservice.PublicRules(conf.WebServiceRules), s.WebServices.Status(), wafView{
+		Groups:   groups,
+		Disabled: waf.NormalizeDisabled(conf.WAFDisabledGroups),
+		Custom:   conf.WAFCustomDirectives,
+	}})
+}
+
+type wafView struct {
+	Groups   []waf.RuleGroup `json:"groups"`
+	Disabled []int           `json:"disabled"`
+	Custom   string          `json:"custom"`
 }
 
 // wafCount 统计启用 Coraza WAF 的服务数，只用于保存日志。

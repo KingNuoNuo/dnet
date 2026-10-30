@@ -51,3 +51,29 @@ func TestWebServiceWAFSwitchPersists(t *testing.T) {
 		t.Fatal("WAF switch lost on YAML round trip")
 	}
 }
+
+func TestWAFSelectionPersists(t *testing.T) {
+	conf := Config{
+		WAFDisabledGroups:   []int{942, 930},
+		WAFCustomDirectives: `SecRule ARGS:probe "@rx x" "id:199999,phase:2,deny"`,
+	}
+	snapshot := conf.clone()
+	snapshot.WAFDisabledGroups[0] = 941
+	if conf.WAFDisabledGroups[0] != 942 {
+		t.Fatal("snapshot aliases WAF group list")
+	}
+	body, err := yaml.Marshal(conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "waf_disabled_groups:") || !strings.Contains(string(body), "waf_custom_directives:") {
+		t.Fatal("WAF selection not written to YAML")
+	}
+	var loaded Config
+	if err := yaml.Unmarshal(body, &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.WAFDisabledGroups) != 2 || loaded.WAFDisabledGroups[1] != 930 || loaded.WAFCustomDirectives != conf.WAFCustomDirectives {
+		t.Fatal("WAF selection lost on YAML round trip")
+	}
+}
