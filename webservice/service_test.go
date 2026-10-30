@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cxbdasheng/dnet/waf"
 )
 
 func testRule(t *testing.T, target string) Rule {
@@ -274,9 +276,10 @@ func TestCorazaWAFSwitch(t *testing.T) {
 	}))
 	defer upstream.Close()
 	rule := testRule(t, upstream.URL)
-	rule.WAFEnabled = true
+	rule.WAFPolicyID = "default"
 	m := NewManager()
 	defer m.Close()
+	m.SetWAFPolicies([]waf.Policy{{ID: "default", Name: "默认"}})
 	if err := m.Apply([]Rule{rule}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -302,9 +305,9 @@ func TestCorazaWAFSwitch(t *testing.T) {
 		t.Fatalf("body lost through WAF: %q", got)
 	}
 
-	// 关掉开关后同样的探测请求应该到达后端。
+	// 切回“不启用策略”后同样的探测请求应该到达后端。
 	off := rule
-	off.WAFEnabled = false
+	off.WAFPolicyID = ""
 	if err := m.Apply([]Rule{off}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -313,35 +316,36 @@ func TestCorazaWAFSwitch(t *testing.T) {
 	}
 }
 
-func TestWAFRuleGroupsSelectable(t *testing.T) {
+func TestWAFPoliciesPerService(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "reached")
 	}))
 	defer upstream.Close()
-	rule := testRule(t, upstream.URL)
-	rule.WAFEnabled = true
+	strict := testRule(t, upstream.URL)
+	strict.WAFPolicyID = "strict"
+	relaxed := testRule(t, upstream.URL)
+	relaxed.ID, relaxed.Domain = "two", "two.example"
+	relaxed.WAFPolicyID = "relaxed"
 	m := NewManager()
 	defer m.Close()
-
-	// 关掉 SQL 注入组（942）后注入请求直通后端，其余组（XSS）仍然拦截。
-	m.SetWAF([]int{942}, "")
-	if err := m.Apply([]Rule{rule}, nil); err != nil {
+	m.SetWAFPolicies([]waf.Policy{
+		{ID: "strict", Name: "严格"},
+		{ID: "relaxed", Name: "放宽", DisabledGroups: []int{942}},
+	})
+	if err := m.Apply([]Rule{strict, relaxed}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := body(t, request(t, rule, rule.Domain, `/search?id=1%27%20or%20%271%27%3D%271`)); got != "reached" {
-		t.Fatalf("disabled sqli group still blocked: %q", got)
-	}
-	if code := request(t, rule, rule.Domain, `/search?q=%3Csvg%2Fonload%3Dalert(1)%3E`).StatusCode; code != http.StatusForbidden {
-		t.Fatalf("xss not blocked: %d", code)
-	}
 
-	// 恢复默认（全部检测组开启）后同一注入请求被拦截。
-	m.SetWAF(nil, "")
-	if err := m.Apply([]Rule{rule}, nil); err != nil {
-		t.Fatal(err)
+	// 同一个 SQL 注入请求：严格策略拦截，放宽策略（关闭 942）放行。
+	if code := request(t, strict, strict.Domain, `/search?id=1%27%20or%20%271%27%3D%271`).StatusCode; code != http.StatusForbidden {
+		t.Fatalf("strict policy did not block: %d", code)
 	}
-	if code := request(t, rule, rule.Domain, `/search?id=1%27%20or%20%271%27%3D%271`).StatusCode; code != http.StatusForbidden {
-		t.Fatalf("sqli not blocked after re-enabling: %d", code)
+	if got := body(t, request(t, relaxed, relaxed.Domain, `/search?id=1%27%20or%20%271%27%3D%271`)); got != "reached" {
+		t.Fatalf("relaxed policy blocked: %q", got)
+	}
+	// 放宽策略仍然保留 XSS 组。
+	if code := request(t, relaxed, relaxed.Domain, `/search?q=%3Csvg%2Fonload%3Dalert(1)%3E`).StatusCode; code != http.StatusForbidden {
+		t.Fatalf("relaxed policy lost xss protection: %d", code)
 	}
 }
 
@@ -351,10 +355,10 @@ func TestWAFInvalidCustomDirectivesRejectApply(t *testing.T) {
 	}))
 	defer upstream.Close()
 	rule := testRule(t, upstream.URL)
-	rule.WAFEnabled = true
+	rule.WAFPolicyID = "bad"
 	m := NewManager()
 	defer m.Close()
-	m.SetWAF(nil, "This is not SecLang")
+	m.SetWAFPolicies([]waf.Policy{{ID: "bad", Name: "坏规则", CustomDirectives: "This is not SecLang"}})
 	if err := m.Apply([]Rule{rule}, nil); err == nil {
 		t.Fatal("invalid custom directives accepted")
 	}

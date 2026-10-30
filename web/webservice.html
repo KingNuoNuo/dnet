@@ -111,9 +111,22 @@
             </div>
 
             <div class="dnet-group">
-              <span class="t">Coraza WAF 规则</span>
+              <span class="t">Coraza WAF 策略</span>
             </div>
 
+            <div class="layui-form-item">
+              <label class="layui-form-label" for="waf-policy">当前策略：</label>
+              <div class="layui-input-inline" style="width: 220px">
+                <select id="waf-policy" lay-ignore></select>
+              </div>
+              <div class="layui-input-inline" style="width: 220px">
+                <input id="waf-policy-name" class="layui-input" maxlength="32" placeholder="策略名称">
+              </div>
+              <div class="layui-input-inline" style="width: auto">
+                <button type="button" class="layui-btn layui-btn-primary layui-btn-sm" id="waf-policy-add">新增策略</button>
+                <button type="button" class="layui-btn layui-btn-primary layui-btn-sm" id="waf-policy-del">删除策略</button>
+              </div>
+            </div>
             <div class="layui-form-item">
               <label class="layui-form-label">内置规则组：</label>
               <div class="layui-input-block" id="waf-groups"></div>
@@ -122,6 +135,7 @@
               内置 OWASP CRS（与 Lucky 同源）。901/949 等框架组始终启用，其余按需勾选；
               单个站点误报时优先关掉对应规则组。默认只放行 GET/HEAD/POST/OPTIONS（911 组），
               WebDAV/PUT/DELETE 场景请取消勾选 911。低配路由器初始化 CRS 需要数秒与额外内存。
+              下方每个服务可以在「WAF 策略」里选择启用哪套策略。
             </div>
 
             <div class="layui-form-item">
@@ -206,7 +220,7 @@
         busy = false,
         loaded = false;
       const expanded = new Set(); // 展开了高级设置的行 id
-      const waf = { groups: [], disabled: new Set(), custom: "" };
+      const waf = { groups: [], policies: [], index: 0 };
 
       const TYPES = [
         ["proxy", "反向代理"],
@@ -524,8 +538,8 @@
                 <input data-key="listen_address" aria-label="监听 IP" placeholder="0.0.0.0 或 ::" value="${esc(rule.listen_address)}">
               </div>
               <div class="f">
-                <label>Coraza WAF</label>
-                <input type="checkbox" data-key="waf_enabled" lay-skin="switch" lay-text="开启|关闭" lay-filter="row-flag"${rule.waf_enabled ? " checked" : ""}>
+                <label>WAF 策略</label>
+                <select data-key="waf_policy_id" aria-label="WAF 策略" lay-ignore>${options([["", "不启用"], ...waf.policies.map((p) => [p.id, p.name])], rule.waf_policy_id)}</select>
               </div>
               <div class="f" data-when="proxy">
                 <label>响应头超时（秒）</label>
@@ -570,7 +584,7 @@
                 与证书也必须一致。
               </p>
               <p class="note" data-type-help>${esc(TYPE_HELP[rule.type] || "")}</p>
-              <p class="note">Coraza WAF 由内置 OWASP CRS 检查请求行、请求头与请求体（上限 13 MiB，超出部分继续转发），命中即返回 403 并写入 DWS 日志；规则组与自定义规则在页面上方「Coraza WAF 规则」里统一配置，关闭后请求原样转发。</p>
+              <p class="note">Coraza WAF 由内置 OWASP CRS 检查请求行、请求头与请求体（上限 13 MiB，超出部分继续转发），命中即返回 403 并写入 DWS 日志；规则组与自定义规则在页面上方「Coraza WAF 策略」里按策略配置，本行在这里选择使用哪套策略（不启用则请求原样转发）。</p>
             </div>`;
         return el;
       }
@@ -636,7 +650,7 @@
           ? entries.size + " 个入口"
           : "—";
         document.querySelector("#kpi-waf").textContent = enabled
-          ? rules.filter((r) => r.waf_enabled).length + " 个"
+          ? rules.filter((r) => r.waf_policy_id).length + " 个"
           : "—";
         stat.classList.toggle("is-off", !enabled);
         stat.classList.toggle(
@@ -694,7 +708,7 @@
           certificate_id: "",
           certificate: "",
           key: "",
-          waf_enabled: false,
+          waf_policy_id: "",
         };
       }
 
@@ -773,30 +787,115 @@
         status = data.status || [];
         const view = data.waf || {};
         waf.groups = view.groups || [];
-        waf.disabled = new Set(view.disabled || []);
-        waf.custom = view.custom || "";
+        waf.policies = (view.policies || []).map((policy) => ({
+          id: policy.id,
+          name: policy.name,
+          disabled: new Set(policy.disabled || []),
+          custom: policy.custom || "",
+        }));
+        if (!waf.policies.length) {
+          // 首次使用：先在页面上摆一个默认策略，保存后才落盘。
+          waf.policies.push({
+            id: "default",
+            name: "默认策略",
+            disabled: new Set(),
+            custom: "",
+          });
+        }
+        waf.index = Math.min(waf.index, waf.policies.length - 1);
         dirty = false;
         renderAll();
         renderWAF(true);
       }
-      function renderWAF(resetCustom) {
+      function currentPolicy() {
+        return waf.policies[waf.index] || null;
+      }
+      // 策略下拉/名称输入/新增删除后，同步每一行的策略选项。
+      function syncRowPolicies() {
+        for (const el of root.children) {
+          const rule = rules.find((r) => r.id === el.dataset.id);
+          const select = el.querySelector('[data-key="waf_policy_id"]');
+          if (!rule || !select) continue;
+          select.innerHTML = options(
+            [["", "不启用"], ...waf.policies.map((p) => [p.id, p.name])],
+            rule.waf_policy_id,
+          );
+          select.value = rule.waf_policy_id || "";
+        }
+      }
+      function renderWAF(resetFields) {
+        const select = document.querySelector("#waf-policy");
+        if (select) {
+          select.innerHTML = waf.policies
+            .map(
+              (p, i) =>
+                `<option value="${esc(p.id)}"${i === waf.index ? " selected" : ""}>${esc(p.name)}</option>`,
+            )
+            .join("");
+          select.value = (currentPolicy() || {}).id || "";
+        }
+        const policy = currentPolicy();
         const host = document.querySelector("#waf-groups");
         if (host) {
           host.innerHTML = waf.groups
             .map(
               (g) =>
-                `<input type="checkbox" lay-skin="primary" lay-filter="waf-group" value="${g.id}"${g.mandatory || !waf.disabled.has(g.id) ? " checked" : ""}${g.mandatory ? " disabled data-mandatory=\"1\"" : ""} title="${esc(`${g.id} ${g.name}`)}">`,
+                `<input type="checkbox" lay-skin="primary" lay-filter="waf-group" value="${g.id}"${g.mandatory || !policy || !policy.disabled.has(g.id) ? " checked" : ""}${g.mandatory ? " disabled data-mandatory=\"1\"" : ""} title="${esc(`${g.id} ${g.name}`)}">`,
             )
             .join("");
           form.render("checkbox");
         }
-        if (resetCustom) {
+        if (resetFields) {
+          const name = document.querySelector("#waf-policy-name");
+          if (name) name.value = policy ? policy.name : "";
           const custom = document.querySelector("#waf-custom");
-          if (custom) custom.value = waf.custom;
+          if (custom) custom.value = policy ? policy.custom : "";
         }
+        syncRowPolicies();
+      }
+      function newPolicy() {
+        const bytes = new Uint8Array(8);
+        crypto.getRandomValues(bytes);
+        const id = "p" + Array.from(bytes, (x) => x.toString(16).padStart(2, "0")).join("");
+        waf.policies.push({
+          id,
+          name: "策略 " + (waf.policies.length + 1),
+          disabled: new Set(),
+          custom: "",
+        });
+        waf.index = waf.policies.length - 1;
+        markDirty();
+        renderWAF(true);
+      }
+      async function deletePolicy() {
+        if (busy || !loaded) return;
+        const policy = currentPolicy();
+        if (!policy || waf.policies.length <= 1) {
+          layer.msg("至少保留一个策略；不需要 WAF 时在服务行里选择「不启用」");
+          return;
+        }
+        const used = rules.filter((r) => r.waf_policy_id === policy.id).length;
+        const confirmed = await confirmBox(
+          `删除「${policy.name}」？` +
+            (used ? `有 ${used} 个服务正在使用，删除后会改为「不启用」。` : ""),
+          "删除策略",
+        );
+        if (!confirmed) return;
+        waf.policies.splice(waf.index, 1);
+        for (const rule of rules)
+          if (rule.waf_policy_id === policy.id) rule.waf_policy_id = "";
+        waf.index = Math.min(waf.index, waf.policies.length - 1);
+        markDirty();
+        renderWAF(true);
       }
       async function submit() {
         if (busy || !loaded) return;
+        for (const policy of waf.policies) {
+          if (!String(policy.name || "").trim()) {
+            layer.msg("WAF 策略名称不能为空", { icon: 2, time: 2500 });
+            return;
+          }
+        }
         for (const rule of rules) {
           const issue = ruleError(rule);
           if (!issue) continue;
@@ -827,8 +926,7 @@
           const data = await api({
             enabled,
             auto_firewall: autoFirewall,
-            waf_disabled: Array.from(waf.disabled).sort((a, b) => a - b),
-            waf_custom: waf.custom,
+            waf_policies: waf.policies.map((p) => ({ id: p.id, name: p.name, disabled: Array.from(p.disabled).sort((a, b) => a - b), custom: p.custom || "" })),
             rules: rules.map((rule) => ({ ...rule, has_password: undefined })),
           });
           if (!data) {
@@ -932,16 +1030,37 @@
         autoFirewall = data.elem.checked;
         markDirty();
       });
-      // WAF 规则组勾选：记录被关闭的组；自定义规则随输入更新。
+      // WAF 策略：规则组按当前策略勾选，名称/自定义规则随输入更新。
       form.on("checkbox(waf-group)", (data) => {
+        const policy = currentPolicy();
         const id = Number(data.elem.value);
-        if (!id) return;
-        if (data.elem.checked) waf.disabled.delete(id);
-        else waf.disabled.add(id);
+        if (!policy || !id) return;
+        if (data.elem.checked) policy.disabled.delete(id);
+        else policy.disabled.add(id);
         markDirty();
       });
+      document.querySelector("#waf-policy").addEventListener("change", (e) => {
+        waf.index = waf.policies.findIndex((p) => p.id === e.target.value);
+        if (waf.index < 0) waf.index = 0;
+        renderWAF(true);
+      });
+      document.querySelector("#waf-policy-name").addEventListener("input", (e) => {
+        const policy = currentPolicy();
+        if (!policy) return;
+        policy.name = e.target.value;
+        markDirty();
+        const option = document.querySelector(
+          `#waf-policy option[value="${policy.id}"]`,
+        );
+        if (option) option.textContent = policy.name || "未命名策略";
+        syncRowPolicies();
+      });
+      document.querySelector("#waf-policy-add").onclick = newPolicy;
+      document.querySelector("#waf-policy-del").onclick = deletePolicy;
       document.querySelector("#waf-custom").addEventListener("input", (e) => {
-        waf.custom = e.target.value;
+        const policy = currentPolicy();
+        if (!policy) return;
+        policy.custom = e.target.value;
         markDirty();
       });
       // 行内的开关统一走一个 filter：layui 的开关不会触发原生 change，

@@ -45,8 +45,11 @@ type Rule struct {
 	Certificate   string `json:"certificate" yaml:"certificate"`
 	Key           string `json:"key" yaml:"key"`
 	TimeoutSec    int    `json:"timeout_sec" yaml:"timeout_sec"`
-	// WAFEnabled 为该服务单独打开内置的 Coraza WAF，命中规则直接返回 403。
-	WAFEnabled bool `json:"waf_enabled" yaml:"waf_enabled,omitempty"`
+	// WAFPolicyID 指向一套 WAF 策略；空表示该服务不启用 WAF。
+	WAFPolicyID string `json:"waf_policy_id" yaml:"waf_policy_id,omitempty"`
+	// WAFEnabled 是 v0.2.2 及之前的开关，仅用于旧配置迁移，
+	// 现在由 WAFPolicyID 是否为空推导，对前端保持只读。
+	WAFEnabled bool `json:"waf_enabled,omitempty" yaml:"waf_enabled,omitempty"`
 }
 
 func (r Rule) serviceType() string {
@@ -100,6 +103,12 @@ func PublicRules(rules []Rule) []Rule {
 	}
 	return out
 }
+
+const (
+	// DefaultPolicyID 是 v0.2.2 全局 WAF 配置迁移后生成的策略 ID。
+	DefaultPolicyID = "default"
+)
+
 func Prepare(rules, previous []Rule) ([]Rule, error) {
 	out := slices.Clone(rules)
 	for i := range out {
@@ -107,6 +116,12 @@ func Prepare(rules, previous []Rule) ([]Rule, error) {
 		r.PasswordHash = ""
 		r.HasPassword = false
 		r.Domain = domain(r.Domain)
+		// 旧配置只有 on/off 开关：迁移到默认策略，之后按策略选择。
+		if r.WAFPolicyID == "" && r.WAFEnabled {
+			r.WAFPolicyID = DefaultPolicyID
+		}
+		r.WAFPolicyID = strings.TrimSpace(r.WAFPolicyID)
+		r.WAFEnabled = r.WAFPolicyID != ""
 		for _, old := range previous {
 			if old.ID == r.ID {
 				r.PasswordHash = old.PasswordHash
@@ -294,38 +309,42 @@ func newSite(r Rule, rules []Rule, engine *waf.Engine) *site {
 			proxy.ServeHTTP(w, req)
 		}
 	})
-	if r.WAFEnabled && engine != nil {
-		// 内置规则集在 Apply 阶段已经解析过，这里只复用同一个引擎。
+	if engine != nil {
+		// 引擎在 Apply 阶段按服务所选策略构建好，这里只包裹这一条路由。
 		// WAF 放在认证之前：恶意请求不必先通过一次 bcrypt 校验。
 		s.handler = engine.Handler(r.Name, s.handler)
 	}
 	return s
 }
 
-// prepareWAF 在开监听前解析内置 CRS，规则写错会直接让 Apply 失败，
-// 不会留下半套监听。没有服务开启 WAF、也没有自定义规则/关闭组时跳过解析，
-// 避免不启用 WAF 的用户承担 CRS 的初始化开销。
-func (m *Manager) prepareWAF(rules []Rule) (*waf.Engine, error) {
-	needed := m.wafCustom != "" || len(m.wafDisabled) > 0
-	for _, r := range rules {
-		if r.WAFEnabled {
-			needed = true
-			break
-		}
-	}
-	if !needed {
+// prepareWAF 在开监听前为所有策略构建引擎；策略编译失败会让 Apply 整体失败，
+// 不会留下半套监听，也不会把坏配置留到运行期。没有配置策略时跳过，避免不启用
+// WAF 的用户承担 CRS 的初始化开销。
+func (m *Manager) prepareWAF() (map[string]*waf.Engine, error) {
+	if len(m.wafPolicies) == 0 {
 		return nil, nil
 	}
-	return waf.Configure(m.wafDisabled, m.wafCustom)
+	engines := make(map[string]*waf.Engine, len(m.wafPolicies))
+	for _, policy := range m.wafPolicies {
+		engine, err := waf.EngineFor(policy)
+		if err != nil {
+			return nil, fmt.Errorf("WAF 策略 %q: %w", policy.Name, err)
+		}
+		engines[policy.ID] = engine
+	}
+	return engines, nil
 }
 
-// SetWAF 更新全局 WAF 规则选择（关闭的规则组 + 自定义 SecLang）。
-// 与 Apply 一起在配置保存时调用；引擎只在选择变化时重建。
-func (m *Manager) SetWAF(disabled []int, custom string) {
+// SetWAFPolicies 更新全局 WAF 策略列表。与 Apply 一起在配置保存时调用；
+// 每个策略的引擎按内容缓存，选择没变就不会重建。
+func (m *Manager) SetWAFPolicies(policies []waf.Policy) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.wafDisabled = waf.NormalizeDisabled(disabled)
-	m.wafCustom = strings.TrimSpace(custom)
+	out := make([]waf.Policy, 0, len(policies))
+	for _, policy := range policies {
+		out = append(out, waf.NormalizePolicy(policy))
+	}
+	m.wafPolicies = out
 }
 
 type group struct {
@@ -433,8 +452,7 @@ type Manager struct {
 	mu          sync.Mutex
 	groups      map[string]*group
 	closed      bool
-	wafDisabled []int
-	wafCustom   string
+	wafPolicies []waf.Policy
 }
 
 func NewManager() *Manager { return &Manager{groups: map[string]*group{}} }
@@ -466,7 +484,7 @@ func (m *Manager) Apply(rules []Rule, save func() error) error {
 	if m.closed {
 		return fmt.Errorf("Web 服务已停止")
 	}
-	engine, err := m.prepareWAF(rules)
+	engines, err := m.prepareWAF()
 	if err != nil {
 		return err
 	}
@@ -490,7 +508,7 @@ func (m *Manager) Apply(rules []Rule, save func() error) error {
 		if routes[key] == nil {
 			routes[key] = map[string]*site{}
 		}
-		routes[key][domain(r.Domain)] = newSite(r, rules, engine)
+		routes[key][domain(r.Domain)] = newSite(r, rules, engines[r.WAFPolicyID])
 		if next[key] != nil {
 			continue
 		}

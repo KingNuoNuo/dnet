@@ -257,23 +257,34 @@ func filterDanglingTargets(body string, ruleIDs map[int]bool) string {
 	return out.String()
 }
 
+// Policy 是一套命名的 WAF 规则选择：关闭哪些 CRS 规则组 + 追加的 SecLang
+// 规则。Web 服务按 ID 引用策略，因此不同站点可以套用不同策略。
+type Policy struct {
+	ID               string `json:"id" yaml:"id"`
+	Name             string `json:"name" yaml:"name"`
+	DisabledGroups   []int  `json:"disabled" yaml:"disabled,omitempty"`
+	CustomDirectives string `json:"custom" yaml:"custom,omitempty"`
+}
+
 var (
-	configureMu   sync.Mutex
-	configured    *Engine
-	configuredKey string
+	engineMu    sync.Mutex
+	engineCache = map[string]*Engine{}
 )
 
-// Configure builds (or reuses) the shared engine for the given disabled group
-// IDs and extra SecLang directives. It is rebuilt only when the selection
-// changes; the previous engine keeps serving in-flight requests meanwhile.
-func Configure(disabled []int, custom string) (*Engine, error) {
-	key := strings.Join(intSliceToStrings(NormalizeDisabled(disabled)), ",") + "\x00" + custom
-	configureMu.Lock()
-	defer configureMu.Unlock()
-	if configured != nil && configuredKey == key {
-		return configured, nil
+// EngineFor builds (or reuses) the engine for a policy selection. Engines are
+// keyed by their effective directives, so policies with identical settings
+// share one instance and unchanged settings never rebuild.
+func EngineFor(policy Policy) (*Engine, error) {
+	disabled := NormalizeDisabled(policy.DisabledGroups)
+	custom := strings.TrimSpace(policy.CustomDirectives)
+	key := strings.Join(intSliceToStrings(disabled), ",") + "\x00" + custom
+
+	engineMu.Lock()
+	defer engineMu.Unlock()
+	if engine, ok := engineCache[key]; ok {
+		return engine, nil
 	}
-	directives, err := buildDirectives(NormalizeDisabled(disabled), custom)
+	directives, err := buildDirectives(disabled, custom)
 	if err != nil {
 		return nil, err
 	}
@@ -281,9 +292,21 @@ func Configure(disabled []int, custom string) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	configured = engine
-	configuredKey = key
+	// 缓存只用于复用；策略数量可控，超过阈值时直接清空重建。
+	if len(engineCache) >= 16 {
+		engineCache = map[string]*Engine{}
+	}
+	engineCache[key] = engine
 	return engine, nil
+}
+
+// NormalizePolicy 修剪策略字段并丢弃未知/框架组 ID，保证落盘内容稳定。
+func NormalizePolicy(policy Policy) Policy {
+	policy.ID = strings.TrimSpace(policy.ID)
+	policy.Name = strings.TrimSpace(policy.Name)
+	policy.CustomDirectives = strings.TrimSpace(policy.CustomDirectives)
+	policy.DisabledGroups = NormalizeDisabled(policy.DisabledGroups)
+	return policy
 }
 
 // New parses the supplied SecLang directives into an engine. Includes resolve

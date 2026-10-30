@@ -8,12 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/cxbdasheng/dnet/certificates"
 	"github.com/cxbdasheng/dnet/forward"
 	"github.com/cxbdasheng/dnet/helper"
+	"github.com/cxbdasheng/dnet/waf"
 	"github.com/cxbdasheng/dnet/webservice"
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
@@ -76,13 +78,48 @@ type Config struct {
 	// WebAutoFirewall 与 ForwardAutoFirewall 同理：把 Web 服务里监听在通配
 	// 地址的规则端口加进防火墙放行，与端口转发共用同一套 dnet- 前缀规则。
 	WebAutoFirewall bool `json:"web_auto_firewall" yaml:"web_auto_firewall,omitempty"`
-	// WAFDisabledGroups 是全局关闭的内置 OWASP CRS 规则组 ID（如 941/942）；
-	// 为空表示全部检测组开启。框架组（901/949 等）始终加载，不能关闭。
-	WAFDisabledGroups []int `json:"waf_disabled_groups" yaml:"waf_disabled_groups,omitempty"`
-	// WAFCustomDirectives 追加在内置 CRS 之后的用户 SecLang 规则。
+	// WAFPolicies 是命名的 WAF 策略（规则组选择 + 自定义 SecLang），
+	// Web 服务按 waf_policy_id 引用；策略列表为空表示不启用 WAF。
+	WAFPolicies []waf.Policy `json:"waf_policies" yaml:"waf_policies,omitempty"`
+	// WAFDisabledGroups / WAFCustomDirectives 是 v0.2.2 的全局 WAF 配置，
+	// 仅用于升级迁移，启动时会被收拢为一条「默认策略」。
+	WAFDisabledGroups   []int  `json:"waf_disabled_groups" yaml:"waf_disabled_groups,omitempty"`
 	WAFCustomDirectives string `json:"waf_custom_directives" yaml:"waf_custom_directives,omitempty"`
 	// 语言
 	Lang string
+}
+
+// NormalizeWAF 把 v0.2.2 的全局 WAF 配置迁移为「默认策略」，
+// 并同步各服务引用的策略 ID（旧开关视为引用默认策略）。
+func (conf *Config) NormalizeWAF() {
+	if len(conf.WAFPolicies) == 0 && (len(conf.WAFDisabledGroups) > 0 || conf.WAFCustomDirectives != "") {
+		conf.WAFPolicies = []waf.Policy{{
+			ID:               webservice.DefaultPolicyID,
+			Name:             "默认策略",
+			DisabledGroups:   conf.WAFDisabledGroups,
+			CustomDirectives: conf.WAFCustomDirectives,
+		}}
+	}
+	conf.WAFDisabledGroups = nil
+	conf.WAFCustomDirectives = ""
+
+	known := make(map[string]bool, len(conf.WAFPolicies))
+	for i := range conf.WAFPolicies {
+		conf.WAFPolicies[i] = waf.NormalizePolicy(conf.WAFPolicies[i])
+		known[conf.WAFPolicies[i].ID] = true
+	}
+	for i := range conf.WebServiceRules {
+		rule := &conf.WebServiceRules[i]
+		if rule.WAFPolicyID == "" && rule.WAFEnabled {
+			rule.WAFPolicyID = webservice.DefaultPolicyID
+		}
+		rule.WAFPolicyID = strings.TrimSpace(rule.WAFPolicyID)
+		if rule.WAFPolicyID != "" && !known[rule.WAFPolicyID] {
+			helper.Warn(helper.LogTypeConfig, "服务 %s 引用的 WAF 策略 %q 不存在，已关闭 WAF", rule.Name, rule.WAFPolicyID)
+			rule.WAFPolicyID = ""
+		}
+		rule.WAFEnabled = rule.WAFPolicyID != ""
+	}
 }
 
 // ActiveForwardRules preserves saved rules while the module is switched off.
@@ -97,6 +134,10 @@ func (conf Config) ActiveForwardRules() []forward.Rule {
 func (conf Config) clone() Config {
 	conf.WebServiceRules = slices.Clone(conf.WebServiceRules)
 	conf.WAFDisabledGroups = slices.Clone(conf.WAFDisabledGroups)
+	conf.WAFPolicies = slices.Clone(conf.WAFPolicies)
+	for i := range conf.WAFPolicies {
+		conf.WAFPolicies[i].DisabledGroups = slices.Clone(conf.WAFPolicies[i].DisabledGroups)
+	}
 	conf.Certificates = certificates.Clone(conf.Certificates)
 	conf.ForwardRules = forward.Clone(conf.ForwardRules)
 	conf.DCDN = slices.Clone(conf.DCDN)

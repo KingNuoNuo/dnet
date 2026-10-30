@@ -10,7 +10,7 @@ import (
 
 func testEngine(t *testing.T) *Engine {
 	t.Helper()
-	engine, err := Configure(nil, "")
+	engine, err := EngineFor(Policy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestAttacksBlocked(t *testing.T) {
 }
 
 func TestDisabledGroupsLetAttacksThrough(t *testing.T) {
-	engine, err := Configure([]int{942, 930}, "")
+	engine, err := EngineFor(Policy{DisabledGroups: []int{942, 930}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestDisabledGroupsLetAttacksThrough(t *testing.T) {
 
 func TestCustomDirectivesApply(t *testing.T) {
 	custom := `SecRule ARGS:probe "@rx winbeat" "id:199999,phase:2,deny,log,msg:'自定义探测规则'"`
-	engine, err := Configure(nil, custom)
+	engine, err := EngineFor(Policy{CustomDirectives: custom})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestCustomDirectivesApply(t *testing.T) {
 	if code, _ := serve(t, engine, req); code != http.StatusForbidden {
 		t.Fatalf("custom rule not applied: %d", code)
 	}
-	without, err := Configure(nil, "")
+	without, err := EngineFor(Policy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestCustomDirectivesApply(t *testing.T) {
 }
 
 func TestCustomDirectivesSyntaxSurfaces(t *testing.T) {
-	if _, err := Configure(nil, "This is not SecLang"); err == nil {
+	if _, err := EngineFor(Policy{CustomDirectives: "This is not SecLang"}); err == nil {
 		t.Fatal("invalid custom directives accepted")
 	}
 }
@@ -232,11 +232,11 @@ func TestLargeBodyStillReachesBackend(t *testing.T) {
 }
 
 func TestConfigureReusesEngineWhileSelectionUnchanged(t *testing.T) {
-	first, err := Configure(nil, "")
+	first, err := EngineFor(Policy{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := Configure(nil, "")
+	second, err := EngineFor(Policy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,14 +244,14 @@ func TestConfigureReusesEngineWhileSelectionUnchanged(t *testing.T) {
 	if first != second {
 		t.Fatal("engine rebuilt with unchanged selection")
 	}
-	other, err := Configure([]int{942}, "")
+	other, err := EngineFor(Policy{DisabledGroups: []int{942}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if other == first {
 		t.Fatal("engine not rebuilt after selection change")
 	}
-	if again, err := Configure([]int{942}, ""); err != nil || again != other {
+	if again, err := EngineFor(Policy{DisabledGroups: []int{942}}); err != nil || again != other {
 		t.Fatal("engine rebuilt with unchanged selection")
 	}
 }

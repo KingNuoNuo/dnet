@@ -131,7 +131,7 @@ jobs:
             echo "- 服务商凭据全局化：DNS / CDN AccessKey / Secret 统一在系统设置维护，升级时自动迁移旧凭据"
             echo "- 防火墙自动放行：四级检测 fw4 → fw3 → nft → iptables，自适应 OpenWrt 与通用 Linux；只动 dnet- 前缀规则，端口转发与 Web 服务共用"
             echo "- SSL 证书申请进度实时上报，悬浮状态格查看当前步骤"
-            echo "- Coraza WAF：Web 服务按行开启，内置 OWASP CRS 规则组（911~999）可逐组勾选，支持自定义 SecLang；命中返回 403 并写 DWS 日志"
+            echo "- Coraza WAF：内置 OWASP CRS，可建多套策略（规则组 + 自定义 SecLang），Web 服务按行选择策略；命中返回 403 并写 DWS 日志"
             echo "- 自更新指向本仓库：\`dnet -u\` 只查询 KingNuoNuo/dnet 的 Releases，发布同时提供 checksums.txt 与 x86_64 / i386 / armv5-7 命名的资产"
             echo
             echo "### 命令行"

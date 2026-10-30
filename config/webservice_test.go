@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cxbdasheng/dnet/waf"
 	"github.com/cxbdasheng/dnet/webservice"
 	"gopkg.in/yaml.v3"
 )
@@ -54,26 +55,62 @@ func TestWebServiceWAFSwitchPersists(t *testing.T) {
 
 func TestWAFSelectionPersists(t *testing.T) {
 	conf := Config{
-		WAFDisabledGroups:   []int{942, 930},
-		WAFCustomDirectives: `SecRule ARGS:probe "@rx x" "id:199999,phase:2,deny"`,
+		WAFPolicies: []waf.Policy{{
+			ID:               "strict",
+			Name:             "严格",
+			DisabledGroups:   []int{942, 930},
+			CustomDirectives: `SecRule ARGS:probe "@rx x" "id:199999,phase:2,deny"`,
+		}},
+		WebServiceRules: []webservice.Rule{{ID: "one", Name: "1", WAFPolicyID: "strict"}},
 	}
 	snapshot := conf.clone()
-	snapshot.WAFDisabledGroups[0] = 941
-	if conf.WAFDisabledGroups[0] != 942 {
-		t.Fatal("snapshot aliases WAF group list")
+	snapshot.WAFPolicies[0].DisabledGroups[0] = 941
+	if conf.WAFPolicies[0].DisabledGroups[0] != 942 {
+		t.Fatal("snapshot aliases WAF policy groups")
 	}
 	body, err := yaml.Marshal(conf)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "waf_disabled_groups:") || !strings.Contains(string(body), "waf_custom_directives:") {
-		t.Fatal("WAF selection not written to YAML")
+	if !strings.Contains(string(body), "waf_policies:") || !strings.Contains(string(body), "waf_policy_id: strict") {
+		t.Fatal("WAF policies not written to YAML")
 	}
 	var loaded Config
 	if err := yaml.Unmarshal(body, &loaded); err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded.WAFDisabledGroups) != 2 || loaded.WAFDisabledGroups[1] != 930 || loaded.WAFCustomDirectives != conf.WAFCustomDirectives {
+	if len(loaded.WAFPolicies) != 1 || loaded.WAFPolicies[0].ID != "strict" ||
+		len(loaded.WAFPolicies[0].DisabledGroups) != 2 || loaded.WAFPolicies[0].DisabledGroups[1] != 930 ||
+		loaded.WAFPolicies[0].CustomDirectives == "" ||
+		loaded.WebServiceRules[0].WAFPolicyID != "strict" {
 		t.Fatal("WAF selection lost on YAML round trip")
+	}
+}
+
+// v0.2.2 的全局 WAF 配置升级成「默认策略」，旧开关映射为引用默认策略。
+func TestNormalizeWAFMigratesLegacyGlobalConfig(t *testing.T) {
+	conf := Config{
+		WAFDisabledGroups:   []int{942},
+		WAFCustomDirectives: `SecRule ARGS:x "@rx y" "id:199999,phase:2,deny"`,
+		WebServiceRules: []webservice.Rule{
+			{ID: "one", Name: "one", WAFEnabled: true},
+			{ID: "two", Name: "two", WAFPolicyID: "missing"},
+		},
+	}
+	conf.NormalizeWAF()
+	if len(conf.WAFPolicies) != 1 || conf.WAFPolicies[0].ID != webservice.DefaultPolicyID {
+		t.Fatalf("legacy config not migrated: %+v", conf.WAFPolicies)
+	}
+	if len(conf.WAFPolicies[0].DisabledGroups) != 1 || conf.WAFPolicies[0].DisabledGroups[0] != 942 {
+		t.Fatal("legacy disabled groups lost")
+	}
+	if conf.WAFDisabledGroups != nil || conf.WAFCustomDirectives != "" {
+		t.Fatal("legacy fields not cleared")
+	}
+	if conf.WebServiceRules[0].WAFPolicyID != webservice.DefaultPolicyID || !conf.WebServiceRules[0].WAFEnabled {
+		t.Fatal("legacy switch not mapped to default policy")
+	}
+	if conf.WebServiceRules[1].WAFPolicyID != "" || conf.WebServiceRules[1].WAFEnabled {
+		t.Fatal("dangling policy reference not cleared")
 	}
 }

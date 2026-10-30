@@ -250,8 +250,9 @@ func run() {
 	defer webServiceManager.Close()
 	go webServer.RunCertificateMaintenance(shutdown)
 	if conf, err := configRepo.Load(); err == nil {
+		conf.NormalizeWAF()
 		if conf.WebServiceEnabled {
-			webServiceManager.SetWAF(conf.WAFDisabledGroups, conf.WAFCustomDirectives)
+			webServiceManager.SetWAFPolicies(conf.WAFPolicies)
 			if err := webServiceManager.ApplyCertificates(conf.WebServiceRules, conf.Certificates, nil); err != nil {
 				helper.Error(helper.LogTypeWebService, "启动失败: %v", err)
 			}
