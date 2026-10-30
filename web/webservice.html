@@ -506,6 +506,11 @@
                 <label>保留 Host</label>
                 <input type="checkbox" data-key="preserve_host" lay-skin="switch" lay-text="开启|关闭" lay-filter="row-flag"${rule.preserve_host ? " checked" : ""}>
               </div>
+              <div class="f" data-when="proxy">
+                <label>跳过上游证书校验</label>
+                <input type="checkbox" data-key="insecure_skip_verify" lay-skin="switch" lay-text="开启|关闭" lay-filter="row-flag"${rule.insecure_skip_verify ? " checked" : ""}>
+                <span class="tip-line">目标为 https 且是自签名证书、或证书名与目标地址不一致（例如用 IP 访问）时打开；只影响这条规则。</span>
+              </div>
               <div class="f" data-when="redirect">
                 <label>重定向状态码</label>
                 <select data-key="redirect_code" aria-label="重定向状态码" lay-ignore>${options(REDIRECT_CODES, rule.redirect_code || 302)}</select>
@@ -655,6 +660,7 @@
           target: "http://127.0.0.1:3000",
           redirect_code: 302,
           preserve_host: false,
+          insecure_skip_verify: false,
           timeout_sec: 30,
           auth_enabled: false,
           username: "",

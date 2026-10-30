@@ -36,15 +36,18 @@ type Rule struct {
 	ListenPort    int    `json:"listen_port" yaml:"listen_port"`
 	Target        string `json:"target" yaml:"target"`
 	PreserveHost  bool   `json:"preserve_host" yaml:"preserve_host"`
-	AuthEnabled   bool   `json:"auth_enabled" yaml:"auth_enabled"`
-	Username      string `json:"username" yaml:"username"`
-	Password      string `json:"password,omitempty" yaml:"-"`
-	PasswordHash  string `json:"-" yaml:"password_hash,omitempty"`
-	HasPassword   bool   `json:"has_password" yaml:"-"`
-	TLS           bool   `json:"tls" yaml:"tls"`
-	Certificate   string `json:"certificate" yaml:"certificate"`
-	Key           string `json:"key" yaml:"key"`
-	TimeoutSec    int    `json:"timeout_sec" yaml:"timeout_sec"`
+	// InsecureSkipVerify 跳过上游 HTTPS 证书校验。家里 NAS / 路由器面板常见自签名证书，
+	// 或者证书名与服务地址不一致（如用 IP 访问），不打开这个开关反代会返回 502。
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty" yaml:"insecure_skip_verify,omitempty"`
+	AuthEnabled        bool   `json:"auth_enabled" yaml:"auth_enabled"`
+	Username           string `json:"username" yaml:"username"`
+	Password           string `json:"password,omitempty" yaml:"-"`
+	PasswordHash       string `json:"-" yaml:"password_hash,omitempty"`
+	HasPassword        bool   `json:"has_password" yaml:"-"`
+	TLS                bool   `json:"tls" yaml:"tls"`
+	Certificate        string `json:"certificate" yaml:"certificate"`
+	Key                string `json:"key" yaml:"key"`
+	TimeoutSec         int    `json:"timeout_sec" yaml:"timeout_sec"`
 	// WAFPolicyID 指向一套 WAF 策略；空表示该服务不启用 WAF。
 	WAFPolicyID string `json:"waf_policy_id" yaml:"waf_policy_id,omitempty"`
 	// WAFEnabled 是 v0.2.2 及之前的开关，仅用于旧配置迁移，
@@ -232,6 +235,16 @@ func newSite(r Rule, rules []Rule, engine *waf.Engine) *site {
 	target, _ := url.Parse(r.Target)
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	if r.InsecureSkipVerify {
+		cfg := transport.TLSClientConfig
+		if cfg != nil {
+			cfg = cfg.Clone()
+		} else {
+			cfg = &tls.Config{}
+		}
+		cfg.InsecureSkipVerify = true
+		transport.TLSClientConfig = cfg
+	}
 	listeners := slices.Clone(rules)
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		conn, err := (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, network, address)

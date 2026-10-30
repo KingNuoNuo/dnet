@@ -473,3 +473,37 @@ func TestDualStackRoutingAndRollback(t *testing.T) {
 		l.Close()
 	}
 }
+
+func TestUpstreamTLSSkipVerify(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "ok")
+	}))
+	defer upstream.Close()
+
+	// 默认严格校验：自签名上游必须失败，避免悄悄关掉校验。
+	strict := testRule(t, upstream.URL)
+	strictManager := NewManager()
+	if err := strictManager.Apply([]Rule{strict}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if res := request(t, strict, strict.Domain, "/"); res.StatusCode != http.StatusBadGateway {
+		t.Fatalf("self-signed upstream without skip verify = %d, want 502", res.StatusCode)
+	}
+	strictManager.Close()
+
+	// 打开开关后应正常代理。
+	insecure := testRule(t, upstream.URL)
+	insecure.InsecureSkipVerify = true
+	insecureManager := NewManager()
+	defer insecureManager.Close()
+	if err := insecureManager.Apply([]Rule{insecure}, nil); err != nil {
+		t.Fatal(err)
+	}
+	res := request(t, insecure, insecure.Domain, "/")
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("insecure upstream = %d, want 200", res.StatusCode)
+	}
+	if got := body(t, res); got != "ok" {
+		t.Fatalf("body = %q", got)
+	}
+}
