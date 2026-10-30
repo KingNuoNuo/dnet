@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -36,6 +37,8 @@ var (
 	ruleNameRe    = regexp.MustCompile(`[^A-Za-z0-9-]+`)
 	uciSectionRe  = regexp.MustCompile(`(?m)^firewall\.([^\s.]+)\.name='(dnet-[^']*)'$`)
 	uciFieldRe    = regexp.MustCompile(`(?m)^firewall\.([^\s.]+)\.(dest_port|proto)='([^']*)'$`)
+	anonRuleRe    = regexp.MustCompile(`^@rule\[(\d+)\]$`)
+	iptCommentRe  = regexp.MustCompile(`--comment\s+(dnet-[^\s]+)`)
 	// nft -a list 的规则行：`tcp dport 8080 accept comment "dnet-x" # handle 12`
 	nftRuleRe = regexp.MustCompile(`(?m)^\s*(?:meta l4proto )?(tcp|udp) dport (\d+) accept comment "(dnet-[^"]+)"\s*# handle (\d+)`)
 	// iptables -S 的规则行：`-A INPUT -p tcp -m tcp --dport 8080 -m comment --comment dnet-x -j ACCEPT`
@@ -74,48 +77,77 @@ func fwWanted(rules []Rule) map[string]string {
 }
 
 type fwSection struct {
+	sec   string // uci 段标识：匿名段是 @rule[N]，具名段就是段名
 	name  string
 	proto string
 	port  string
 }
 
+type nftRule struct {
+	name   string
+	port   string
+	handle string
+}
+
+type iptRule struct {
+	name string
+	spec string
+}
+
+// anonRuleIndex 把 `@rule[17]` 解析成 17；具名段返回 false。
+func anonRuleIndex(sec string) (int, bool) {
+	m := anonRuleRe.FindStringSubmatch(sec)
+	if m == nil {
+		return 0, false
+	}
+	idx, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0, false
+	}
+	return idx, true
+}
+
 // parseUCIHas 把 `uci -X show firewall` 的输出还原成我们托管的那部分规则。
-func parseUCIHas(output string) map[string]fwSection {
-	out := map[string]fwSection{}
+// 这里保留所有重复段（同一个 name 可能出现多次），交给对账逻辑去重。
+func parseUCIHas(output string) []fwSection {
+	index := map[string]int{}
+	out := []fwSection{}
 	for _, m := range uciSectionRe.FindAllStringSubmatch(output, -1) {
-		out[m[1]] = fwSection{name: m[2]}
+		index[m[1]] = len(out)
+		out = append(out, fwSection{sec: m[1], name: m[2]})
 	}
 	for _, m := range uciFieldRe.FindAllStringSubmatch(output, -1) {
-		if s, ok := out[m[1]]; ok {
-			if m[2] == "dest_port" {
-				s.port = m[3]
-			} else {
-				s.proto = m[3]
-			}
-			out[m[1]] = s
+		at, ok := index[m[1]]
+		if !ok {
+			continue
+		}
+		if m[2] == "dest_port" {
+			out[at].port = m[3]
+		} else {
+			out[at].proto = m[3]
 		}
 	}
 	return out
 }
 
 // parseNFTHas 把 `nft -a list table inet dnet` 的输出还原成我们托管的规则。
-// 返回 名字 -> handle，handle 用于精准删除。
-func parseNFTHas(output string) map[string]string {
-	out := map[string]string{}
+// 同一 name 的重复规则全部保留，对账时只留一条。
+func parseNFTHas(output string) []nftRule {
+	out := []nftRule{}
 	for _, m := range nftRuleRe.FindAllStringSubmatch(output, -1) {
-		out[m[3]] = m[2] + "/" + m[4] // "端口/handle"
+		out = append(out, nftRule{name: m[3], port: m[2], handle: m[4]})
 	}
 	return out
 }
 
 // parseIPTHas 把 `iptables -S INPUT` 的输出还原成我们托管的规则。
-// 返回 名字 -> 完整规则参数（去掉 `-A INPUT ` 前缀，可直接用于 -D）。
-func parseIPTHas(output string) map[string]string {
-	out := map[string]string{}
+// 同一条规则重复出现时全部保留，对账时只留一条。
+func parseIPTHas(output string) []iptRule {
+	out := []iptRule{}
 	for _, m := range iptRuleRe.FindAllStringSubmatch(output, -1) {
 		spec := m[1]
-		if cm := regexp.MustCompile(`--comment\s+(dnet-[^\s]+)`).FindStringSubmatch(spec); cm != nil {
-			out[cm[1]] = spec
+		if cm := iptCommentRe.FindStringSubmatch(spec); cm != nil {
+			out = append(out, iptRule{name: cm[1], spec: spec})
 		}
 	}
 	return out
@@ -232,35 +264,74 @@ func syncFirewallLocked(enabled bool) {
 
 // ---- 后端 1/2：OpenWrt uci（fw4 / fw3 共用） ----
 
+// uciPlan 是 syncUCI 算出的对账动作，抽成纯函数便于单测。
+type uciPlan struct {
+	anonDeletes  []int
+	namedDeletes []string
+	adds         map[string]string
+}
+
+// planUCI 把「现有段」和「期望集合」对账成删除/新增动作。
+// 同一个 name 的重复段只保留一条端口正确的，其余全部删除，
+// 这样历史上堆积的重复规则会在下一次同步时被清掉。
+func planUCI(current []fwSection, wanted map[string]string) uciPlan {
+	plan := uciPlan{adds: map[string]string{}}
+	for name, spec := range wanted {
+		plan.adds[name] = spec
+	}
+	byName := map[string][]fwSection{}
+	for _, sec := range current {
+		byName[sec.name] = append(byName[sec.name], sec)
+	}
+	for name, sections := range byName {
+		keep := false
+		want, wantedName := plan.adds[name]
+		for _, sec := range sections {
+			if wantedName && !keep && sec.proto+"/"+sec.port == want {
+				keep = true
+				continue
+			}
+			if idx, ok := anonRuleIndex(sec.sec); ok {
+				plan.anonDeletes = append(plan.anonDeletes, idx)
+			} else {
+				plan.namedDeletes = append(plan.namedDeletes, sec.sec)
+			}
+		}
+		if keep {
+			delete(plan.adds, name)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(plan.anonDeletes)))
+	sort.Strings(plan.namedDeletes)
+	return plan
+}
+
 func syncUCI(wanted map[string]string, backend string) error {
 	showOut, err := fwRun("uci -X show firewall 2>/dev/null")
 	if err != nil && showOut == "" {
 		return fmt.Errorf("读取防火墙配置失败: %w", err)
 	}
-	current := parseUCIHas(showOut)
+	plan := planUCI(parseUCIHas(showOut), wanted)
 
 	var script strings.Builder
 	changed := false
-	// 删：我们管的、但不在期望清单里，或端口/协议已变的。
-	for sec, s := range current {
-		want, ok := wanted[s.name]
-		if ok && s.proto+"/"+s.port == want {
-			continue
-		}
+	// 匿名段按索引删除：必须从大到小，避免删掉一条后后面的索引整体前移。
+	for _, idx := range plan.anonDeletes {
+		fmt.Fprintf(&script, "uci -q delete firewall.@rule[%d]\n", idx)
+		changed = true
+	}
+	for _, sec := range plan.namedDeletes {
 		fmt.Fprintf(&script, "uci -q delete firewall.%s\n", sec)
 		changed = true
-		if ok {
-			delete(wanted, s.name) // 下面按「新增」重建
-		}
 	}
 	// 增：缺的。
-	names := make([]string, 0, len(wanted))
-	for name := range wanted {
+	names := make([]string, 0, len(plan.adds))
+	for name := range plan.adds {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		parts := strings.SplitN(wanted[name], "/", 2)
+		parts := strings.SplitN(plan.adds[name], "/", 2)
 		fmt.Fprintf(&script, "sec=$(uci -q add firewall rule); "+
 			"uci -q set firewall.$sec.name='%s'; "+
 			"uci -q set firewall.$sec.src='wan'; "+
@@ -312,19 +383,25 @@ func syncNFT(wanted map[string]string) error {
 	}
 	current := parseNFTHas(listOut)
 
+	// 同一 name 的重复规则只保留一条端口正确的，其余按 handle 删除。
+	byName := map[string][]nftRule{}
+	for _, rule := range current {
+		byName[rule.name] = append(byName[rule.name], rule)
+	}
 	var cmds []string
-	for name, cur := range current {
-		port := strings.SplitN(cur, "/", 2)[0]
+	for name, rules := range byName {
 		want, ok := wanted[name]
-		wantPort := ""
-		if ok {
-			wantPort = strings.SplitN(want, "/", 2)[1]
+		keep := false
+		for _, rule := range rules {
+			if ok && !keep && strings.SplitN(want, "/", 2)[1] == rule.port {
+				keep = true
+				continue
+			}
+			cmds = append(cmds, "nft delete rule inet dnet input handle "+rule.handle)
 		}
-		if ok && wantPort == port {
+		if keep {
 			delete(wanted, name)
-			continue
 		}
-		cmds = append(cmds, "nft delete rule inet dnet input handle "+strings.SplitN(cur, "/", 2)[1])
 	}
 	names := make([]string, 0, len(wanted))
 	for name := range wanted {
@@ -366,18 +443,22 @@ func syncIPT(wanted map[string]string) error {
 			return fmt.Errorf("读取 %s 失败: %w", bin, err)
 		}
 		current := parseIPTHas(listOut)
-		// 删：端口/协议变了或已不需要的
-		for name, spec := range current {
+		// 同一 name 的重复规则只保留一条端口正确的，其余删除。
+		byName := map[string][]iptRule{}
+		for _, rule := range current {
+			byName[rule.name] = append(byName[rule.name], rule)
+		}
+		for name, rules := range byName {
 			want, ok := wanted[name]
-			wantPort := ""
-			if ok {
-				wantPort = strings.SplitN(want, "/", 2)[1]
+			keep := false
+			for _, rule := range rules {
+				if ok && !keep && iptPort(rule.spec) == strings.SplitN(want, "/", 2)[1] {
+					keep = true
+					continue
+				}
+				cmds = append(cmds, bin+" -D INPUT "+rule.spec)
+				changed = true
 			}
-			if ok && iptPort(spec) == wantPort {
-				continue
-			}
-			cmds = append(cmds, bin+" -D INPUT "+spec)
-			changed = true
 		}
 		// 增：缺的（每个家族各自补全，wanted 只读）
 		names := make([]string, 0, len(wanted))

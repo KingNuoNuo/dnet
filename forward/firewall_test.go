@@ -61,11 +61,70 @@ firewall.cfg0ghi56.name='user-rule-not-ours'
 	if len(got) != 2 {
 		t.Fatalf("want 2 dnet sections, got %v", got)
 	}
-	if got["cfg0abc12"].name != "dnet-a1" || got["cfg0abc12"].proto != "tcp" || got["cfg0abc12"].port != "18096" {
-		t.Fatalf("cfg0abc12 parsed wrong: %+v", got["cfg0abc12"])
+	bySec := map[string]fwSection{}
+	for _, sec := range got {
+		bySec[sec.sec] = sec
 	}
-	if got["cfg0def34"].proto != "udp" || got["cfg0def34"].port != "53" {
-		t.Fatalf("cfg0def34 parsed wrong: %+v", got["cfg0def34"])
+	if bySec["cfg0abc12"].name != "dnet-a1" || bySec["cfg0abc12"].proto != "tcp" || bySec["cfg0abc12"].port != "18096" {
+		t.Fatalf("cfg0abc12 parsed wrong: %+v", bySec["cfg0abc12"])
+	}
+	if bySec["cfg0def34"].proto != "udp" || bySec["cfg0def34"].port != "53" {
+		t.Fatalf("cfg0def34 parsed wrong: %+v", bySec["cfg0def34"])
+	}
+}
+
+func TestPlanUCIDedupesAndKeepsOneRulePerName(t *testing.T) {
+	// 历史上按索引删除没删干净，同一个 name 堆了多条；端口正确的那条要保留，
+	// 其余全部删除，且匿名段索引按从大到小排序（避免删除时索引前移）。
+	current := []fwSection{
+		{sec: "@rule[5]", name: "dnet-a1", proto: "tcp", port: "18096"},
+		{sec: "@rule[9]", name: "dnet-a1", proto: "tcp", port: "18096"},
+		{sec: "@rule[3]", name: "dnet-a1", proto: "tcp", port: "18096"},
+		{sec: "@rule[7]", name: "dnet-gone", proto: "tcp", port: "8080"},
+		{sec: "cfg0abc12", name: "dnet-moved", proto: "tcp", port: "1111"},
+		{sec: "@rule[11]", name: "dnet-moved", proto: "tcp", port: "2222"},
+	}
+	wanted := map[string]string{
+		"dnet-a1":    "tcp/18096",
+		"dnet-moved": "tcp/2222",
+		"dnet-new":   "udp/5353",
+	}
+	plan := planUCI(current, wanted)
+	if len(plan.anonDeletes) != 3 {
+		t.Fatalf("anonDeletes = %v, want 3 entries", plan.anonDeletes)
+	}
+	for i := 1; i < len(plan.anonDeletes); i++ {
+		if plan.anonDeletes[i-1] <= plan.anonDeletes[i] {
+			t.Fatalf("anonDeletes not descending: %v", plan.anonDeletes)
+		}
+	}
+	if len(plan.namedDeletes) != 1 || plan.namedDeletes[0] != "cfg0abc12" {
+		t.Fatalf("namedDeletes = %v", plan.namedDeletes)
+	}
+	if len(plan.adds) != 1 || plan.adds["dnet-new"] != "udp/5353" {
+		t.Fatalf("adds = %v", plan.adds)
+	}
+	if len(wanted) != 3 {
+		t.Fatal("planUCI must not mutate the caller's wanted map")
+	}
+}
+
+func TestPlanUCIAddsWhenMissing(t *testing.T) {
+	plan := planUCI(nil, map[string]string{"dnet-a1": "tcp/18096"})
+	if len(plan.anonDeletes) != 0 || len(plan.namedDeletes) != 0 {
+		t.Fatalf("unexpected deletes: %+v", plan)
+	}
+	if plan.adds["dnet-a1"] != "tcp/18096" {
+		t.Fatalf("missing add: %+v", plan)
+	}
+}
+
+func TestAnonRuleIndex(t *testing.T) {
+	if idx, ok := anonRuleIndex("@rule[17]"); !ok || idx != 17 {
+		t.Fatalf("anonRuleIndex(@rule[17]) = %d, %v", idx, ok)
+	}
+	if _, ok := anonRuleIndex("cfg0abc12"); ok {
+		t.Fatal("named section treated as anonymous")
 	}
 }
 
@@ -114,8 +173,15 @@ func TestParseNFTHas(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("want 2 dnet rules, got %v", got)
 	}
-	if got["dnet-a1"] != "18096/4" || got["dnet-a2"] != "5353/5" {
-		t.Fatalf("parsed wrong: %v", got)
+	byName := map[string]nftRule{}
+	for _, rule := range got {
+		byName[rule.name] = rule
+	}
+	if byName["dnet-a1"].port != "18096" || byName["dnet-a1"].handle != "4" {
+		t.Fatalf("parsed wrong: %+v", byName["dnet-a1"])
+	}
+	if byName["dnet-a2"].port != "5353" || byName["dnet-a2"].handle != "5" {
+		t.Fatalf("parsed wrong: %+v", byName["dnet-a2"])
 	}
 }
 
@@ -128,10 +194,14 @@ func TestParseIPTHas(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("want 2 dnet rules, got %v", got)
 	}
-	if iptPort(got["dnet-a1"]) != "18096" {
-		t.Fatalf("port parsed wrong: %q", got["dnet-a1"])
+	byName := map[string]iptRule{}
+	for _, rule := range got {
+		byName[rule.name] = rule
 	}
-	if got["dnet-a2"] != "-p udp -m udp --dport 5353 -m comment --comment dnet-a2 -j ACCEPT" {
-		t.Fatalf("spec parsed wrong: %q", got["dnet-a2"])
+	if iptPort(byName["dnet-a1"].spec) != "18096" {
+		t.Fatalf("port parsed wrong: %q", byName["dnet-a1"].spec)
+	}
+	if byName["dnet-a2"].spec != "-p udp -m udp --dport 5353 -m comment --comment dnet-a2 -j ACCEPT" {
+		t.Fatalf("spec parsed wrong: %q", byName["dnet-a2"].spec)
 	}
 }
