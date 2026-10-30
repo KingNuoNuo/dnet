@@ -56,6 +56,7 @@
 - **自更新指向本仓库**：`dnet -u` 只查询 `KingNuoNuo/dnet` 的 Releases，不会再误检测上游版本；发布流水线同时产出 `checksums.txt` 与 `x86_64 / i386 / armv5-7` 命名的资产
 - **防火墙自动放行**：端口转发与 Web 服务均可一键自动放行 WAN 入站，四级检测 `fw4 → fw3 → nft → iptables`，自适应 OpenWrt 与通用 Linux；只动 `dnet-` 前缀的自托管规则，与用户已有防火墙规则互不干扰
 - **上游证书校验开关**：反向代理目标为 `https://` 且使用自签名证书、或证书名与目标地址不一致（如用 IP 访问 NAS）时，可单独为这条规则打开「跳过上游证书校验」；默认仍严格校验
+- **证书自动上传到阿里云 ESA**：ACME 证书签发/续期成功后，自动把证书与私钥通过 `SetCertificate` 上传为 ESA 站点证书（`Type=upload`），同名证书按 ID 更新、不会重复创建；也可在证书页手动点「上传 ESA」。本身就是站点级证书，一张 `*.example.com` 通配符即可覆盖站点下所有子域名。凭据复用「系统设置 → 服务商凭据」里的阿里云 AccessKey（需要 `esa:ListSites` / `esa:ListCertificates` / `esa:SetCertificate` 权限）
 - **证书申请进度**：ACME 申请各阶段（注册账户、写 DNS 记录、等待 CA 验证等）实时上报，悬浮状态格即可查看当前步骤
 - **配置密钥加密**：云厂商 AccessKey/Secret、ACME 账号密钥、证书私钥、Webhook 地址可选用主密钥加密后落盘（AES-256-GCM，`enc:v1:` 前缀），明文配置可一键迁移；缺主密钥且配置已是密文时拒绝启动，不会把密文当明文用
 

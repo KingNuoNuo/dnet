@@ -29,6 +29,15 @@ type Certificate struct {
 	LastAttempt time.Time `json:"last_attempt" yaml:"last_attempt,omitempty"`
 	LastError   string    `json:"last_error,omitempty" yaml:"last_error,omitempty"`
 
+	// Deploy 指定证书签发/续期后要自动上传的目标（目前支持阿里云 ESA）。
+	Deploy []DeployTarget `json:"deploy,omitempty" yaml:"deploy,omitempty"`
+	// DeployError / DeployedAt / DeployedFingerprint 记录最近一次上传结果，
+	// DeployedFingerprint 用来判断「当前这份证书是否已经传过」，避免重复上传。
+	DeployError         string    `json:"deploy_error,omitempty" yaml:"deploy_error,omitempty"`
+	DeployedAt          time.Time `json:"deployed_at,omitempty" yaml:"deployed_at,omitempty"`
+	DeployAttempt       time.Time `json:"-" yaml:"deploy_attempt,omitempty"`
+	DeployedFingerprint string    `json:"deployed_fingerprint,omitempty" yaml:"deployed_fingerprint,omitempty"`
+
 	ID       string `json:"id" yaml:"id"`
 	Name     string `json:"name" yaml:"name"`
 	Source   string `json:"source" yaml:"source"`
@@ -36,6 +45,16 @@ type Certificate struct {
 	KeyPath  string `json:"key_path" yaml:"key_path,omitempty"`
 	CertPEM  string `json:"-" yaml:"cert_pem,omitempty"`
 	KeyPEM   string `json:"-" yaml:"key_pem,omitempty"`
+}
+
+// DeployTarget 是证书的自动部署目标。
+type DeployTarget struct {
+	Provider string `json:"provider" yaml:"provider"` // aliyun-esa
+	// Site 是云产品里的站点名（阿里云 ESA 为根域名，如 c90.top）；留空时按证书域名推断。
+	Site string `json:"site,omitempty" yaml:"site,omitempty"`
+	// Name 是云端证书名；留空时用 dnet-<证书名>。
+	Name     string `json:"name,omitempty" yaml:"name,omitempty"`
+	Disabled bool   `json:"disabled,omitempty" yaml:"disabled,omitempty"`
 }
 type Summary struct {
 	Certificate
@@ -130,6 +149,7 @@ func Clone(in []Certificate) []Certificate {
 	out := append([]Certificate(nil), in...)
 	for i := range out {
 		out[i].Domains = append([]string(nil), out[i].Domains...)
+		out[i].Deploy = append([]DeployTarget(nil), out[i].Deploy...)
 	}
 	return out
 }

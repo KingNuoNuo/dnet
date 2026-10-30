@@ -15,7 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cxbdasheng/dnet/certdeploy"
 	"github.com/cxbdasheng/dnet/certificates"
+	"github.com/cxbdasheng/dnet/config"
 	"github.com/cxbdasheng/dnet/helper"
 )
 
@@ -73,6 +75,10 @@ func (s *Server) CertificatesAPI(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			helper.ReturnSuccess(w, "申请任务已启动", nil)
+			return
+		}
+		if input.Action == "deploy" {
+			s.deployCertificateNow(w, r, input.Certificate.ID)
 			return
 		}
 		s.webServiceMu.Lock()
@@ -136,6 +142,11 @@ func (s *Server) CertificatesAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			c.LastAttempt = old.LastAttempt
 			c.LastError = old.LastError
+			// 部署状态跟着证书走，不能因为编辑别的字段就丢掉（否则会重复上传）。
+			c.DeployError = old.DeployError
+			c.DeployedAt = old.DeployedAt
+			c.DeployAttempt = old.DeployAttempt
+			c.DeployedFingerprint = old.DeployedFingerprint
 			if input.CertPEM != "" {
 				c.CertPEM = input.CertPEM
 			}
@@ -324,12 +335,91 @@ func (s *Server) startCertificateJob(id string) error {
 						s.configRepo.Save(&latest)
 					}
 				}
+				// 证书落盘并加载到 DWS 之后再上传到云端，失败不影响本地生效。
+				if issueErr == nil {
+					s.deployCertificateLocked(&latest, i)
+				}
 				return
 			}
 		}
 	}()
 	return nil
 }
+
+// deployCertificateLocked 把 conf.Certificates[index] 上传到配置的云端目标。
+// 调用方必须持有 webServiceMu。成功和失败都会写回配置，便于界面展示与重试。
+func (s *Server) deployCertificateLocked(conf *config.Config, index int) bool {
+	if index < 0 || index >= len(conf.Certificates) {
+		return false
+	}
+	cert := &conf.Certificates[index]
+	if !certdeploy.Active(*cert) {
+		return true
+	}
+	cert.DeployAttempt = time.Now()
+	reports, err := certdeploy.Deploy(context.Background(), *conf, *cert)
+	if err != nil {
+		cert.DeployError = err.Error()
+		helper.Error(helper.LogTypeSSL, "证书自动上传失败 [%s]: %v", cert.Name, err)
+	} else {
+		cert.DeployError = ""
+		cert.DeployedAt = time.Now()
+		cert.DeployedFingerprint = certdeploy.Fingerprint(*cert)
+		for _, report := range reports {
+			helper.Info(helper.LogTypeSSL, "证书已上传 [%s, 目标=%s, 站点=%s, 名称=%s, 证书ID=%s, 更新=%v]",
+				cert.Name, report.Provider, report.Site, report.CertName, report.CertID, report.Updated)
+		}
+	}
+	if saveErr := s.configRepo.Save(conf); saveErr != nil {
+		helper.Error(helper.LogTypeSSL, "保存证书上传结果失败: %v", saveErr)
+		return false
+	}
+	return err == nil
+}
+
+// deployCertificateNow 处理手动「上传」：任何来源（ACME / 上传 / 路径）的证书都能传。
+func (s *Server) deployCertificateNow(w http.ResponseWriter, r *http.Request, id string) {
+	s.webServiceMu.Lock()
+	defer s.webServiceMu.Unlock()
+	conf, err := s.configRepo.Load()
+	if err != nil {
+		helper.ReturnError(w, "加载配置失败")
+		return
+	}
+	for i := range conf.Certificates {
+		if conf.Certificates[i].ID != id {
+			continue
+		}
+		cert := &conf.Certificates[i]
+		if !certdeploy.Active(*cert) {
+			helper.ReturnError(w, "该证书没有启用「自动上传」目标")
+			return
+		}
+		reports, deployErr := certdeploy.Deploy(r.Context(), conf, *cert)
+		cert.DeployAttempt = time.Now()
+		if deployErr != nil {
+			cert.DeployError = deployErr.Error()
+		} else {
+			cert.DeployError = ""
+			cert.DeployedAt = time.Now()
+			cert.DeployedFingerprint = certdeploy.Fingerprint(*cert)
+		}
+		if saveErr := s.configRepo.Save(&conf); saveErr != nil {
+			helper.ReturnError(w, "上传结果保存失败: "+saveErr.Error())
+			return
+		}
+		if deployErr != nil {
+			helper.Error(helper.LogTypeSSL, "证书上传失败 [%s]: %v", cert.Name, deployErr)
+			helper.ReturnError(w, deployErr.Error())
+			return
+		}
+		helper.Info(helper.LogTypeSSL, "证书已手动上传 [%s]", cert.Name)
+		helper.ReturnSuccess(w, "证书已上传", reports)
+		return
+	}
+	helper.ReturnError(w, "证书不存在")
+}
+
 func (s *Server) RunCertificateMaintenance(ctx context.Context) {
 	s.webServiceMu.Lock()
 	s.certificateContext = ctx
@@ -343,6 +433,27 @@ func (s *Server) RunCertificateMaintenance(ctx context.Context) {
 		}
 		conf, err := s.configRepo.Load()
 		if err == nil {
+			// 证书已签发但上次上传失败、或者从没传过时重试；30 分钟内不重复打接口。
+			for i := range conf.Certificates {
+				pending := conf.Certificates[i]
+				if !certdeploy.Pending(pending) {
+					continue
+				}
+				if !pending.DeployAttempt.IsZero() && time.Since(pending.DeployAttempt) < 30*time.Minute {
+					continue
+				}
+				s.webServiceMu.Lock()
+				if latest, loadErr := s.configRepo.Load(); loadErr == nil {
+					for j := range latest.Certificates {
+						if latest.Certificates[j].ID == pending.ID {
+							s.deployCertificateLocked(&latest, j)
+							break
+						}
+					}
+				}
+				s.webServiceMu.Unlock()
+				break
+			}
 			for _, c := range conf.Certificates {
 				if certificates.Due(c, time.Now()) {
 					s.startCertificateJob(c.ID)

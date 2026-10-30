@@ -411,6 +411,55 @@
               </div>
             </div>
             <div class="layui-row layui-form-item">
+              <label class="layui-form-label" for="deploy-esa"
+                >自动上传到 ESA：</label
+              >
+              <div class="layui-input-inline">
+                <input
+                  id="deploy-esa"
+                  type="checkbox"
+                  lay-skin="switch"
+                  lay-text="开启|关闭"
+                  lay-filter="deploy-toggle"
+                />
+              </div>
+              <div class="layui-form-mid layui-word-aux">
+                签发或续期后自动上传为阿里云 ESA（边缘安全加速）站点证书。
+              </div>
+            </div>
+            <div id="deploy-fields" hidden>
+              <div class="layui-row layui-form-item">
+                <label class="layui-form-label" for="deploy-site"
+                  >ESA 站点：</label
+                >
+                <div class="layui-input-block">
+                  <input
+                    class="layui-input"
+                    id="deploy-site"
+                    placeholder="留空自动推断，如 c90.top"
+                  /><tip
+                    >ESA 控制台里的站点名（根域名）。证书域名必须属于该站点；多级后缀（如
+                    example.co.uk）请手动填写。</tip
+                  >
+                </div>
+              </div>
+              <div class="layui-row layui-form-item">
+                <label class="layui-form-label" for="deploy-name"
+                  >ESA 证书名：</label
+                >
+                <div class="layui-input-block">
+                  <input
+                    class="layui-input"
+                    id="deploy-name"
+                    placeholder="留空用 dnet-&lt;证书名&gt;"
+                  /><tip
+                    >同名证书会被更新（不会重复创建）。凭据复用「系统设置 →
+                    服务商凭据」里的阿里云 AccessKey / Secret。</tip
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="layui-row layui-form-item">
               <div class="layui-input-block">
                 <label class="certificate-consent"
                   ><input id="terms" type="checkbox" lay-ignore /><span
@@ -491,6 +540,7 @@
         const network = ["http", "tls-alpn"].includes($("challenge").value);
         $("http-fields").hidden = !network;
         $("dns-fields").hidden = network;
+        $("deploy-fields").hidden = !$("deploy-esa").checked;
         document.querySelector("#http-fields tip").textContent =
           $("challenge").value === "tls-alpn" ? tlsHelp : httpHelp;
         const cloud = $("challenge").value === "cloudflare";
@@ -535,6 +585,10 @@
         $("terms").checked = !!c.accept_terms;
         $("eab-key").placeholder = c.has_eab_key ? "已保存，留空保持不变" : "";
         $("token").placeholder = c.has_token ? "已保存，留空保持不变" : "";
+        const deploy = (c.deploy || []).find((d) => d.provider === "aliyun-esa");
+        $("deploy-esa").checked = !!deploy;
+        $("deploy-site").value = (deploy && deploy.site) || "";
+        $("deploy-name").value = (deploy && deploy.name) || "";
         $("editor").hidden = false;
         visibility();
       }
@@ -543,11 +597,22 @@
         $("rows").replaceChildren();
         for (const c of items) {
           const tr = document.createElement("tr");
+          const deployTarget = (c.deploy || []).find(
+            (d) => d.provider === "aliyun-esa" && !d.disabled,
+          );
+          const deployState = deployTarget
+            ? c.deploy_error
+              ? " · ESA 上传失败"
+              : c.deployed_at && !c.deployed_at.startsWith("0001")
+                ? " · ESA 已上传"
+                : " · ESA 待上传"
+            : "";
           for (const [text, tip] of [
             [c.name + " / " + { upload: "上传", path: "路径", acme: "ACME" }[c.source], ""],
             [(c.covered_domains?.length ? c.covered_domains : c.domains || []).join(", "), ""],
             [
               (c.running ? "申请中" : states[c.state] || c.state) +
+                deployState +
                 (c.not_after && !c.not_after.startsWith("0001")
                   ? " / " + new Date(c.not_after).toLocaleDateString("sv-SE")
                   : ""),
@@ -570,6 +635,7 @@
             ...(c.source === "acme"
               ? [["申请 / 续期", () => act("issue", c)]]
               : []),
+            ...(deployTarget ? [["上传 ESA", () => act("deploy", c)]] : []),
             [
               "删除",
               () => {
@@ -587,11 +653,14 @@
           }
           tr.append(td);
           $("rows").append(tr);
-          if (c.error || c.last_error) {
+          const errorText = [c.error, c.last_error, c.deploy_error]
+            .filter(Boolean)
+            .join(" · ");
+          if (errorText) {
             const row = document.createElement("tr"),
               cell = document.createElement("td");
             cell.colSpan = 5;
-            cell.textContent = c.error || c.last_error;
+            cell.textContent = errorText;
             cell.style.color = "#b45309";
             row.append(cell);
             $("rows").append(row);
@@ -604,7 +673,9 @@
           $("message").textContent =
             action === "issue"
               ? "申请任务已启动，把鼠标放到状态格上可看当前进度。"
-              : "已删除";
+              : action === "deploy"
+                ? "证书已上传到阿里云 ESA。"
+                : "已删除";
           await load();
         } catch (e) {
           $("message").textContent = e.message;
@@ -643,6 +714,15 @@
             renew_days: Number($("renew-days").value),
             auto_renew: $("auto").checked,
             accept_terms: $("terms").checked,
+            deploy: $("deploy-esa").checked
+              ? [
+                  {
+                    provider: "aliyun-esa",
+                    site: $("deploy-site").value.trim(),
+                    name: $("deploy-name").value.trim(),
+                  },
+                ]
+              : [],
           };
           await api({
             action: "save",
@@ -665,6 +745,7 @@
       };
       layui.use(["form", "upload"], () => {
         layui.form.on("switch(eab-toggle)", visibility);
+        layui.form.on("switch(deploy-toggle)", visibility);
         layui.form.on("select(certificate-option)", (data) => {
           if (data.elem.id === "ca") $("terms").checked = false;
           visibility();
