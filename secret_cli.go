@@ -140,6 +140,15 @@ func secretStatus() error {
 	case ok && encrypted > 0:
 		fmt.Println("状态：已加密。")
 	}
+	// 机读行：LuCI 等前端按这一行取状态，避免解析中文文案。
+	keySource := "none"
+	if ok {
+		keySource = "file"
+		if strings.HasPrefix(source, "环境变量") {
+			keySource = "env"
+		}
+	}
+	fmt.Printf("#secret encrypted=%d plain=%d empty=%d key=%s\n", encrypted, plain, countEmptySecrets(&conf), keySource)
 	return nil
 }
 
