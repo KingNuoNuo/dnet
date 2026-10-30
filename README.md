@@ -91,6 +91,8 @@ dnet -secret encrypt
 /etc/init.d/dnet restart
 ```
 
+> 服务启动时用了 `-c`（OpenWrt/LuCI 部署通常是 `-c /etc/dnet/.dnet_config.yaml`），`-secret` 命令也必须带同样的 `-c`，否则主密钥会生成到 `$HOME` 下，服务找不到。
+
 之后从 Web 界面保存配置也会自动加密。轮换主密钥：
 
 ```bash

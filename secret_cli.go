@@ -35,25 +35,31 @@ func runSecretCommand(mode string) {
 }
 
 func secretInit() error {
-	path := config.SecretKeyPath()
-	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("主密钥已存在: %s\n如需轮换：先用旧密钥执行 dnet -secret decrypt，再备份并删除该文件后重新 init", path)
+	if _, err := secretConfigPath(); err != nil {
+		return err
+	}
+	keyPath := config.SecretKeyPath()
+	if _, err := os.Stat(keyPath); err == nil {
+		return fmt.Errorf("主密钥已存在: %s\n如需轮换：先用旧密钥执行 dnet -secret decrypt，再备份并删除该文件后重新 init", keyPath)
 	}
 	key, err := config.GenerateSecretKey()
 	if err != nil {
 		return err
 	}
-	if err := config.WriteSecretKeyFile(path, key); err != nil {
+	if err := config.WriteSecretKeyFile(keyPath, key); err != nil {
 		return err
 	}
-	fmt.Printf("已生成主密钥: %s（权限 0600）\n\n%s\n\n", path, key)
+	fmt.Printf("已生成主密钥: %s（权限 0600）\n\n%s\n\n", keyPath, key)
 	fmt.Println("请立刻离线备份该文件：丢掉它，配置里已加密的云厂商密钥和 ACME 账号密钥将无法恢复。")
 	fmt.Println("之后保存配置会自动加密敏感字段；现有明文可执行 dnet -secret encrypt 就地迁移。")
 	return nil
 }
 
 func secretEncrypt() error {
-	path := config.GetConfigFilePath()
+	path, err := secretConfigPath()
+	if err != nil {
+		return err
+	}
 	conf, err := config.LoadConfigFile(path)
 	if err != nil {
 		return fmt.Errorf("读取配置 %s 失败: %w", path, err)
@@ -81,7 +87,10 @@ func secretEncrypt() error {
 }
 
 func secretDecrypt() error {
-	path := config.GetConfigFilePath()
+	path, err := secretConfigPath()
+	if err != nil {
+		return err
+	}
 	conf, err := config.LoadConfigFile(path)
 	if err != nil {
 		return fmt.Errorf("读取配置 %s 失败: %w", path, err)
@@ -106,7 +115,10 @@ func secretDecrypt() error {
 }
 
 func secretStatus() error {
-	path := config.GetConfigFilePath()
+	path, err := secretConfigPath()
+	if err != nil {
+		return err
+	}
 	conf, err := config.LoadConfigFile(path)
 	if err != nil {
 		return fmt.Errorf("读取配置 %s 失败: %w", path, err)
@@ -139,6 +151,17 @@ func countEmptySecrets(conf *config.Config) int {
 		len(conf.DCDNConfig.Credentials)*2 + len(conf.DDNSConfig.Credentials)*2 +
 		len(conf.DCDNConfig.DCDN)*2 + len(conf.DDNSConfig.DDNS)*2 + 2
 	return total - encrypted - plain
+}
+
+// secretConfigPath 返回配置文件路径，并给出「找不到文件」时的可操作提示。
+// 服务通常用 -c 指定配置（OpenWrt 上是 /etc/dnet/.dnet_config.yaml），
+// -secret 命令必须用同一个 -c，否则主密钥会生成到别的目录。
+func secretConfigPath() (string, error) {
+	path := config.GetConfigFilePath()
+	if _, err := os.Stat(path); err != nil {
+		return "", fmt.Errorf("找不到配置文件 %s\n如果服务用 -c 指定了配置路径，请对 -secret 命令加同样的 -c 参数（OpenWrt 常见：-c /etc/dnet/.dnet_config.yaml）", path)
+	}
+	return path, nil
 }
 
 func backupConfigFile(path string) (string, error) {
