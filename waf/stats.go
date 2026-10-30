@@ -261,7 +261,7 @@ func Snapshot() Stats {
 	}
 
 	// 最近的放前面，页面直接渲染。
-	for i := len(blockStats.recent) - 1; i >= 0 && len(out.Recent) < 50; i-- {
+	for i := len(blockStats.recent) - 1; i >= 0 && len(out.Recent) < maxRecentEvents; i-- {
 		out.Recent = append(out.Recent, blockStats.recent[i])
 	}
 	return out

@@ -3763,3 +3763,25 @@ select:focus-visible,
     }
 }
 
+
+/* ---- WAF statistics tab ---- */
+.dnet-tabs { display: flex; gap: 6px; margin: 6px 0 14px; border-bottom: 1px solid #e6e8eb; }
+.dnet-tab { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 8px 14px; font-size: 13px; color: #6b7280; cursor: pointer; }
+.dnet-tab.active { color: #1c7ed6; border-bottom-color: #1c7ed6; font-weight: 600; }
+.dnet-tab .count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: #eef2f6; color: #495057; font-size: 11px; line-height: 18px; text-align: center; }
+.waf-stats-tiles { display: flex; gap: 12px; flex-wrap: wrap; }
+.waf-tile { flex: 1 1 160px; min-width: 140px; padding: 12px 14px; border: 1px solid #edf0f2; border-radius: 6px; background: #fafbfc; }
+.waf-tile .k { font-size: 12px; color: #6b7280; }
+.waf-tile .v { font-size: 22px; font-weight: 600; margin-top: 4px; }
+.waf-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 14px; }
+.waf-panel { border: 1px solid #edf0f2; border-radius: 6px; padding: 10px 12px; min-width: 0; }
+.waf-panel h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.waf-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.waf-table th, .waf-table td { text-align: left; padding: 6px; border-bottom: 1px dashed #eceff1; }
+.waf-table th { color: #6b7280; font-weight: 500; white-space: nowrap; }
+.waf-table td.num, .waf-table th.num { text-align: right; white-space: nowrap; }
+.waf-table td.ip { font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
+.waf-empty { color: #98a2b3; padding: 12px 6px; }
+.waf-recent-wrap { margin-top: 16px; border: 1px solid #edf0f2; border-radius: 6px; }
+.waf-recent-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid #edf0f2; }
+.waf-recent-head .pager { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #6b7280; }
