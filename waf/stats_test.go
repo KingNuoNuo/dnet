@@ -86,3 +86,47 @@ func TestGeoIPCountryLookup(t *testing.T) {
 		t.Fatalf("8.8.8.8 country = %q %q", stats.TopIPs[0].Code, stats.TopIPs[0].Country)
 	}
 }
+
+func TestExcludedSourcesSkipped(t *testing.T) {
+	resetStatsForTest()
+	if err := SetExcludedIPs([]string{"203.0.113.9", "198.51.100.0/24"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = SetExcludedIPs(nil)
+		blockStats.Lock()
+		blockStats.publicIPs = map[string]bool{}
+		blockStats.localNets = nil
+		blockStats.Unlock()
+	})
+
+	for _, ip := range []string{"203.0.113.9", "198.51.100.7", "192.168.1.5", "127.0.0.1"} {
+		if Record(BlockEvent{Site: "t", IP: ip}) {
+			t.Errorf("%s should be excluded", ip)
+		}
+	}
+	if !Record(BlockEvent{Site: "t", IP: "8.8.8.8"}) {
+		t.Fatal("public IP should be recorded")
+	}
+	stats := Snapshot()
+	if stats.Total != 1 || stats.UniqueIPs != 1 {
+		t.Fatalf("stats = total %d, ips %d", stats.Total, stats.UniqueIPs)
+	}
+	manual, _ := Exclusions()
+	if len(manual) != 2 || manual[0] != "203.0.113.9" {
+		t.Fatalf("manual exclusions = %v", manual)
+	}
+}
+
+func TestNormalizeExclusions(t *testing.T) {
+	got, err := NormalizeExclusions([]string{" 203.0.113.9 ", "198.51.100.0/24", "203.0.113.9", ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("normalized = %v", got)
+	}
+	if _, err := NormalizeExclusions([]string{"not-an-ip"}); err == nil {
+		t.Fatal("invalid entry must fail")
+	}
+}

@@ -55,6 +55,15 @@
               <div class="layui-input-inline" style="width: 220px">
                 <input id="policy-name" class="layui-input" maxlength="32" placeholder="策略名称">
               </div>
+              <div class="layui-input-inline" style="width: 150px">
+                <input id="policy-pl" class="layui-input" type="number" min="1" max="4" placeholder="PL 1-4" title="CRS 偏执等级 1-4">
+              </div>
+              <div class="layui-input-inline" style="width: 160px">
+                <input id="policy-threshold" class="layui-input" type="number" min="1" max="100" placeholder="异常分阈值" title="入站异常分阈值，默认 5">
+              </div>
+              <div class="layui-input-inline" style="width: 240px">
+                <input id="policy-excluded" class="layui-input" placeholder="例外规则 ID，逗号分隔" title="按规则 ID 关闭检测，例如 942100,941110">
+              </div>
               <div class="layui-input-inline" style="width: auto">
                 <button type="button" class="layui-btn layui-btn-primary layui-btn-sm" id="policy-add">新增策略</button>
                 <button type="button" class="layui-btn layui-btn-primary layui-btn-sm" id="policy-del">删除策略</button>
@@ -151,6 +160,80 @@
                   <tbody id="waf-recent"></tbody>
                 </table>
               </div>
+            </div>
+            <div class="waf-panel" style="margin-top:16px">
+              <h4>排除来源（不计入统计）</h4>
+              <p class="note" style="margin:0 0 8px">内网、本机地址和本机公网 IP 自动排除；可另加 IP / 网段，每行一个。</p>
+              <textarea
+                id="waf-exclude"
+                class="layui-textarea"
+                spellcheck="false"
+                style="min-height:70px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px"
+                placeholder="183.206.168.82&#10;2409:8a20:110:ad90::/60"
+              ></textarea>
+              <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
+                <button type="button" class="layui-btn layui-btn-primary layui-btn-sm" id="waf-exclude-save">保存排除列表</button>
+                <span class="note" id="waf-exclude-auto"></span>
+              </div>
+            </div>
+            <div class="waf-panel" style="margin-top:16px">
+              <h4>自动封禁与限速</h4>
+              <div class="waf-form">
+                <div class="waf-form-row">
+                  <span class="waf-form-label">自动封禁</span>
+                  <label class="waf-switch"><input type="checkbox" id="guard-ban"> 开启</label>
+                  <span class="waf-hint">同一来源连续触发 WAF 后临时封禁</span>
+                </div>
+                <div class="waf-form-row">
+                  <span class="waf-form-label">封禁规则</span>
+                  <span>命中 <input id="guard-threshold" class="waf-num" type="number" min="1" max="1000"> 次 / </span>
+                  <span><input id="guard-window" class="waf-num" type="number" min="1" max="1440"> 分钟内</span>
+                  <span class="waf-sep">→</span>
+                  <span>封禁 <input id="guard-banfor" class="waf-num" type="number" min="1" max="10080"> 分钟</span>
+                </div>
+                <div class="waf-form-row">
+                  <span class="waf-form-label">来源限速</span>
+                  <span><input id="guard-rate" class="waf-num" type="number" min="0" max="10000"> 次/秒</span>
+                  <span>突发 <input id="guard-burst" class="waf-num" type="number" min="1" max="10000"></span>
+                  <span class="waf-hint">0 表示不限速</span>
+                </div>
+                <div class="waf-form-row">
+                  <span class="waf-form-label">白名单</span>
+                  <input id="guard-whitelist" class="waf-input" placeholder="IP / CIDR，逗号分隔，不受封禁和限速影响">
+                </div>
+              </div>
+
+              <h4 style="margin:18px 0 8px">TLS / 响应头</h4>
+              <div class="waf-form">
+                <div class="waf-form-row">
+                  <span class="waf-form-label">HSTS</span>
+                  <label class="waf-switch"><input type="checkbox" id="sec-hsts"> 开启</label>
+                  <span>max-age <input id="sec-hsts-age" class="waf-num waf-num-wide" type="number" min="0"> 秒</span>
+                  <span class="waf-hint">默认 180 天</span>
+                </div>
+                <div class="waf-form-row">
+                  <span class="waf-form-label">隐藏响应头</span>
+                  <label class="waf-switch"><input type="checkbox" id="sec-hide"> 去掉 Server / X-Powered-By</label>
+                </div>
+                <div class="waf-form-row">
+                  <span class="waf-form-label">TLS 最低版本</span>
+                  <select id="sec-tls" class="waf-select">
+                    <option value="1.2">TLS 1.2</option>
+                    <option value="1.3">TLS 1.3</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="waf-actions">
+                <button type="button" class="layui-btn layui-btn-sm" id="guard-save">保存防护设置</button>
+              </div>
+
+              <h4 style="margin:18px 0 8px">当前封禁 <span class="waf-count" id="waf-ban-count">0</span></h4>
+              <table class="waf-table waf-ban-table">
+                <thead><tr><th>来源 IP</th><th>封禁至</th><th class="num">命中</th><th class="num">操作</th></tr></thead>
+                <tbody id="waf-bans"></tbody>
+              </table>
+              <p class="note" id="guard-hint" style="margin:8px 0 0"></p>
             </div>
             <p class="note" id="waf-geoip" style="margin-top:10px"></p>
           </div>
@@ -252,6 +335,11 @@
           $("policy-name").value = policy ? policy.name : "";
           $("custom").value = policy ? policy.custom || "" : "";
         }
+        $("policy-pl").value = policy ? policy.paranoia || 1 : 1;
+        $("policy-threshold").value = policy ? policy.threshold || 5 : 5;
+        $("policy-excluded").value = policy
+          ? (policy.excluded || []).join(", ")
+          : "";
         $("dirty").textContent = dirty ? "（有未提交的更改）" : "";
         controls(busy || !loaded);
       }
@@ -273,6 +361,9 @@
           name: "策略 " + (policies.length + 1),
           disabled: [],
           custom: "",
+          paranoia: 1,
+          threshold: 5,
+          excluded: [],
         });
         index = policies.length - 1;
         markDirty();
@@ -377,6 +468,46 @@
           : "未加载 IP 归属地库：把 GeoLite2-Country.mmdb 或 dbip-country-lite.mmdb 放到配置目录（与 master.key 同目录）后重启 dnet，即可显示国家 / 地区。";
         renderRecent();
       }
+      function renderExcluded(ex) {
+        ex = ex || {};
+        $("waf-exclude").value = (ex.manual || []).join("\n");
+        $("waf-exclude-auto").textContent = (ex.auto || []).length
+          ? "自动排除：" + ex.auto.join("、")
+          : "自动排除：内网 / 本机地址（公网 IP 探测中）";
+      }
+      function renderGuard(data) {
+        data = data || {};
+        const g = data.guard || {};
+        const s = data.security || {};
+        $("guard-ban").checked = !!g.ban_enabled;
+        $("guard-threshold").value = g.threshold || 10;
+        $("guard-window").value = g.window_minutes || 10;
+        $("guard-banfor").value = g.ban_minutes || 30;
+        $("guard-rate").value = g.rate_limit || 0;
+        $("guard-burst").value = g.burst || 20;
+        $("guard-whitelist").value = (g.whitelist || []).join(", ");
+        $("sec-hsts").checked = !!s.hsts;
+        $("sec-hsts-age").value = s.hsts_max_age || 15552000;
+        $("sec-hide").checked = !!s.hide_server;
+        $("sec-tls").value = s.tls_min_version === "1.3" ? "1.3" : "1.2";
+        const bans = data.bans || [];
+        $("waf-bans").innerHTML = bans.length
+          ? bans
+              .map(
+                (b) => `<tr>
+                  <td class="ip">${esc(b.ip)}</td>
+                  <td>${esc(new Date(b.until).toLocaleString("zh-CN", { hour12: false }))}</td>
+                  <td class="num">${b.count || 0}</td>
+                  <td><button type="button" class="layui-btn layui-btn-primary layui-btn-xs" data-unban="${esc(b.ip)}">解封</button></td>
+                </tr>`,
+              )
+              .join("")
+          : '<tr><td colspan="4" class="waf-empty">当前没有封禁</td></tr>';
+        $("waf-ban-count").textContent = bans.length;
+        $("guard-hint").textContent = g.ban_enabled
+          ? `同一来源 ${g.window_minutes || 10} 分钟内命中 ${g.threshold || 10} 次即封禁 ${g.ban_minutes || 30} 分钟；限速 ${g.rate_limit || 0} 次/秒（0 为关闭）。`
+          : "自动封禁未启用；限速参数仍按上方生效。";
+      }
       async function refreshStats() {
         if (busy || !loaded) return;
         try {
@@ -402,6 +533,9 @@
           name: p.name,
           disabled: (p.disabled || []).slice(),
           custom: p.custom || "",
+          paranoia: p.paranoia || 1,
+          threshold: p.threshold || 5,
+          excluded: (p.excluded_rules || []).slice(),
         }));
         if (!policies.length) {
           policies.push({ id: "default", name: "默认策略", disabled: [], custom: "" });
@@ -410,6 +544,8 @@
         dirty = false;
         renderAll(true);
         renderStats(data.stats || {});
+        renderExcluded(data.excluded || {});
+        renderGuard(data);
       }
 
       async function submit() {
@@ -429,6 +565,9 @@
               name: p.name.trim(),
               disabled: (p.disabled || []).slice().sort((a, b) => a - b),
               custom: p.custom || "",
+              paranoia: p.paranoia || 1,
+              threshold: p.threshold || 5,
+              excluded_rules: (p.excluded || []).slice().sort((a, b) => a - b),
             })),
           });
           if (data) {
@@ -478,6 +617,27 @@
         policy.custom = e.target.value;
         markDirty();
       });
+      $("policy-pl").addEventListener("input", (e) => {
+        const policy = current();
+        if (!policy) return;
+        policy.paranoia = Number(e.target.value) || 1;
+        markDirty();
+      });
+      $("policy-threshold").addEventListener("input", (e) => {
+        const policy = current();
+        if (!policy) return;
+        policy.threshold = Number(e.target.value) || 5;
+        markDirty();
+      });
+      $("policy-excluded").addEventListener("input", (e) => {
+        const policy = current();
+        if (!policy) return;
+        policy.excluded = e.target.value
+          .split(/[\s,]+/)
+          .map(Number)
+          .filter((n) => n > 0);
+        markDirty();
+      });
       form.on("checkbox(waf-group)", (data) => {
         const policy = current();
         const id = Number(data.elem.value);
@@ -513,6 +673,59 @@
         statsPage += 1;
         renderRecent();
       };
+      $("waf-exclude-save").onclick = async () => {
+        const entries = $("waf-exclude")
+          .value.split(/[\s,]+/)
+          .map((x) => x.trim())
+          .filter(Boolean);
+        try {
+          const data = await api({ action: "exclude_save", exclude_ips: entries });
+          renderExcluded(data.excluded || {});
+          renderStats(data.stats || {});
+          layer.msg("排除列表已保存", { icon: 1, time: 1200 });
+        } catch (e) {
+          error(e);
+        }
+      };
+      $("guard-save").onclick = async () => {
+        const payload = {
+          action: "guard_save",
+          ban_enabled: $("guard-ban").checked,
+          threshold: Number($("guard-threshold").value) || 10,
+          window_minutes: Number($("guard-window").value) || 10,
+          ban_minutes: Number($("guard-banfor").value) || 30,
+          rate_limit: Number($("guard-rate").value) || 0,
+          burst: Number($("guard-burst").value) || 20,
+          whitelist: $("guard-whitelist")
+            .value.split(/[\s,]+/)
+            .map((x) => x.trim())
+            .filter(Boolean),
+          hsts: $("sec-hsts").checked,
+          hsts_max_age: Number($("sec-hsts-age").value) || 0,
+          hide_server: $("sec-hide").checked,
+          tls_min_version: $("sec-tls").value,
+        };
+        try {
+          const data = await api(payload);
+          renderGuard(data);
+          renderStats(data.stats || {});
+          renderExcluded(data.excluded || {});
+          layer.msg("防护设置已保存并应用", { icon: 1, time: 1400 });
+        } catch (e) {
+          error(e);
+        }
+      };
+      $("waf-bans").addEventListener("click", async (e) => {
+        const btn = e.target.closest("[data-unban]");
+        if (!btn) return;
+        try {
+          const data = await api({ action: "unban", ip: btn.dataset.unban });
+          renderGuard(data);
+          layer.msg("已解封 " + btn.dataset.unban, { icon: 1, time: 1200 });
+        } catch (err) {
+          error(err);
+        }
+      });
 
       controls(true);
       api()

@@ -82,6 +82,12 @@ type Config struct {
 	// WAFPolicies 是命名的 WAF 策略（规则组选择 + 自定义 SecLang），
 	// Web 服务按 waf_policy_id 引用；策略列表为空表示不启用 WAF。
 	WAFPolicies []waf.Policy `json:"waf_policies" yaml:"waf_policies,omitempty"`
+	// WAFExcludeIPs 是 WAF 拦截统计要忽略的来源 IP / CIDR（内网与本机地址始终忽略）。
+	WAFExcludeIPs []string `json:"waf_exclude_ips,omitempty" yaml:"waf_exclude_ips,omitempty"`
+	// WAFGuard 是 WAF 自动封禁与来源限速的全局设置。
+	WAFGuard WAFGuard `json:"waf_guard,omitempty" yaml:"waf_guard,omitempty"`
+	// Security 是 DWS 的全局 TLS / 响应头加固选项。
+	Security Security `json:"security,omitempty" yaml:"security,omitempty"`
 	// WAFDisabledGroups / WAFCustomDirectives 是 v0.2.2 的全局 WAF 配置，
 	// 仅用于升级迁移，启动时会被收拢为一条「默认策略」。
 	WAFDisabledGroups   []int  `json:"waf_disabled_groups" yaml:"waf_disabled_groups,omitempty"`
@@ -149,6 +155,8 @@ func (conf Config) clone() Config {
 	conf.WebServiceRules = slices.Clone(conf.WebServiceRules)
 	conf.WAFDisabledGroups = slices.Clone(conf.WAFDisabledGroups)
 	conf.WAFPolicies = slices.Clone(conf.WAFPolicies)
+	conf.WAFExcludeIPs = slices.Clone(conf.WAFExcludeIPs)
+	conf.WAFGuard.Whitelist = slices.Clone(conf.WAFGuard.Whitelist)
 	for i := range conf.WAFPolicies {
 		conf.WAFPolicies[i].DisabledGroups = slices.Clone(conf.WAFPolicies[i].DisabledGroups)
 	}

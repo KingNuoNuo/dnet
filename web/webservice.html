@@ -537,6 +537,10 @@
                 <label>WAF 策略</label>
                 <select data-key="waf_policy_id" aria-label="WAF 策略" lay-ignore>${options([["", "不启用"], ...waf.policies.map((p) => [p.id, p.name])], rule.waf_policy_id)}</select>
               </div>
+              <div class="f">
+                <label>国家/地区限制</label>
+                <input data-key="country_policy" aria-label="国家/地区限制" placeholder="allow:CN 或 deny:RU,KP" value="${esc(rule.country_policy)}">
+              </div>
               <div class="f" data-when="proxy">
                 <label>响应头超时（秒）</label>
                 <input data-key="timeout_sec" type="number" min="1" max="300" inputmode="numeric" aria-label="响应头超时" value="${esc(num(rule.timeout_sec))}">
@@ -711,6 +715,7 @@
           certificate: "",
           key: "",
           waf_policy_id: "",
+          country_policy: "",
         };
       }
 

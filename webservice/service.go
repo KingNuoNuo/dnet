@@ -56,6 +56,8 @@ type Rule struct {
 	// WAFEnabled 是 v0.2.2 及之前的开关，仅用于旧配置迁移，
 	// 现在由 WAFPolicyID 是否为空推导，对前端保持只读。
 	WAFEnabled bool `json:"waf_enabled,omitempty" yaml:"waf_enabled,omitempty"`
+	// CountryPolicy 形如 "allow:CN,HK" 或 "deny:RU,KP"，空表示不限制。
+	CountryPolicy string `json:"country_policy,omitempty" yaml:"country_policy,omitempty"`
 }
 
 func (r Rule) serviceType() string {
@@ -204,6 +206,9 @@ func Validate(rules []Rule) error {
 		if r.AuthEnabled && (r.Username == "" || strings.Contains(r.Username, ":") || r.PasswordHash == "") {
 			return fmt.Errorf("%s: 请设置访问账号和密码", r.Name)
 		}
+		if err := ValidateCountryPolicy(r.CountryPolicy); err != nil {
+			return fmt.Errorf("%s: %v", r.Name, err)
+		}
 		if r.ForceHTTPS && !r.TLS {
 			return fmt.Errorf("%s: 强制 HTTPS 需要先启用 HTTPS", r.Name)
 		}
@@ -272,7 +277,7 @@ func (r *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func newSite(r Rule, rules []Rule, engine *waf.Engine, st *ruleStats) *site {
+func newSite(r Rule, rules []Rule, engine *waf.Engine, st *ruleStats, security SecurityOptions) *site {
 	target, _ := url.Parse(r.Target)
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
@@ -321,6 +326,16 @@ func newSite(r Rule, rules []Rule, engine *waf.Engine, st *ruleStats) *site {
 				p.Out.Header.Del("Authorization")
 			}
 		},
+		ModifyResponse: func(resp *http.Response) error {
+			if security.HideServer {
+				resp.Header.Del("Server")
+				resp.Header.Del("X-Powered-By")
+			}
+			if security.HSTS {
+				resp.Header.Set("Strict-Transport-Security", fmt.Sprintf("max-age=%d", security.HSTSMaxAge))
+			}
+			return nil
+		},
 		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
 			if req.Context().Err() != nil {
 				return
@@ -332,6 +347,9 @@ func newSite(r Rule, rules []Rule, engine *waf.Engine, st *ruleStats) *site {
 	s := &site{rule: r, transport: transport}
 	auth := newAccessAuth()
 	s.handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if security.HSTS && r.TLS {
+			w.Header().Set("Strict-Transport-Security", fmt.Sprintf("max-age=%d", security.HSTSMaxAge))
+		}
 		if st != nil {
 			st.active.Add(1)
 			defer st.active.Add(-1)
@@ -376,6 +394,8 @@ func newSite(r Rule, rules []Rule, engine *waf.Engine, st *ruleStats) *site {
 		// WAF 放在认证之前：恶意请求不必先通过一次 bcrypt 校验。
 		s.handler = engine.Handler(r.Name, s.handler)
 	}
+	// 封禁/限速/地区限制放在最外层：被封禁的来源不必再走 WAF 检查。
+	s.handler = guardHandler(r, s.handler)
 	return s
 }
 
@@ -539,6 +559,36 @@ type Manager struct {
 	closed      bool
 	wafPolicies []waf.Policy
 	stats       map[string]*ruleStats
+	security    SecurityOptions
+}
+
+// SecurityOptions 是 DWS 的全局 TLS / 响应头加固参数。
+type SecurityOptions struct {
+	HSTS          bool
+	HSTSMaxAge    int
+	HideServer    bool
+	TLSMinVersion uint16
+}
+
+func (m *Manager) SetSecurity(options SecurityOptions) {
+	m.mu.Lock()
+	m.security = options
+	m.mu.Unlock()
+}
+
+func (m *Manager) tlsMinVersion() uint16 {
+	if m.security.TLSMinVersion == tls.VersionTLS13 {
+		return tls.VersionTLS13
+	}
+	return tls.VersionTLS12
+}
+
+// TLSVersion 把 "1.2" / "1.3" 转成 crypto/tls 常量，其它值按 1.2。
+func TLSVersion(value string) uint16 {
+	if strings.TrimSpace(value) == "1.3" {
+		return tls.VersionTLS13
+	}
+	return tls.VersionTLS12
 }
 
 func (m *Manager) statsFor(id string) *ruleStats {
@@ -615,7 +665,7 @@ func (m *Manager) Apply(rules []Rule, save func() error) error {
 		if routes[key] == nil {
 			routes[key] = map[string]*site{}
 		}
-		routes[key][domain(r.Domain)] = newSite(r, rules, engines[r.WAFPolicyID], m.statsFor(r.ID))
+		routes[key][domain(r.Domain)] = newSite(r, rules, engines[r.WAFPolicyID], m.statsFor(r.ID), m.security)
 		if next[key] != nil {
 			continue
 		}
@@ -635,7 +685,7 @@ func (m *Manager) Apply(rules []Rule, save func() error) error {
 				rollback()
 				return fmt.Errorf("%s: 证书或私钥无法加载: %w", r.Name, err)
 			}
-			certs[key] = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}
+			certs[key] = &tls.Config{MinVersion: m.tlsMinVersion(), Certificates: []tls.Certificate{cert}}
 		}
 		if old := m.groups[key]; old != nil {
 			if old.rule.TLS != r.TLS {
@@ -653,7 +703,7 @@ func (m *Manager) Apply(rules []Rule, save func() error) error {
 		g := &group{rule: r, connections: map[net.Conn]bool{}, listening: true}
 		g.listener = trackedListener{listener, g}
 		if r.TLS {
-			g.listener = newMixedListener(g.listener, &tls.Config{MinVersion: tls.VersionTLS12, GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
+			g.listener = newMixedListener(g.listener, &tls.Config{MinVersion: m.tlsMinVersion(), GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
 				g.mu.RLock()
 				defer g.mu.RUnlock()
 				return g.tlsConfig, nil
@@ -754,4 +804,79 @@ func ResolveCertificates(rules []Rule, certs []certificates.Certificate) ([]Rule
 		r.managedCert = pair
 	}
 	return out, nil
+}
+
+type countryPolicy struct {
+	allow bool
+	codes map[string]bool
+}
+
+// parseCountryPolicy accepts "allow:CN,HK" or "deny:RU,KP".
+func parseCountryPolicy(value string) *countryPolicy {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	mode, list, ok := strings.Cut(value, ":")
+	if !ok {
+		return nil
+	}
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode != "allow" && mode != "deny" {
+		return nil
+	}
+	codes := map[string]bool{}
+	for _, item := range strings.Split(list, ",") {
+		code := strings.ToUpper(strings.TrimSpace(item))
+		if len(code) == 2 && code[0] >= 'A' && code[0] <= 'Z' && code[1] >= 'A' && code[1] <= 'Z' {
+			codes[code] = true
+		}
+	}
+	if len(codes) == 0 {
+		return nil
+	}
+	return &countryPolicy{allow: mode == "allow", codes: codes}
+}
+
+func (p *countryPolicy) allows(code string) bool {
+	if p.allow {
+		return p.codes[code]
+	}
+	return !p.codes[code]
+}
+
+// ValidateCountryPolicy validates the rule's country policy syntax.
+func ValidateCountryPolicy(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	if parseCountryPolicy(value) == nil {
+		return fmt.Errorf("country policy must be allow:CN,HK or deny:RU,KP")
+	}
+	return nil
+}
+
+// guardHandler applies temporary bans, per-IP rate limiting and country rules
+// before the request reaches WAF or the upstream service.
+func guardHandler(rule Rule, next http.Handler) http.Handler {
+	policy := parseCountryPolicy(rule.CountryPolicy)
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		ip := waf.ClientIP(req)
+		if ok, retry := waf.GuardAllow(ip); !ok {
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			http.Error(w, "too many requests or temporarily banned", http.StatusTooManyRequests)
+			return
+		}
+		if policy != nil {
+			code, _ := waf.CountryOf(ip)
+			if code == "" {
+				code = "??"
+			}
+			if !policy.allows(code) {
+				http.Error(w, "access denied for this region", http.StatusForbidden)
+				return
+			}
+		}
+		next.ServeHTTP(w, req)
+	})
 }

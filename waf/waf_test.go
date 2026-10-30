@@ -255,3 +255,19 @@ func TestConfigureReusesEngineWhileSelectionUnchanged(t *testing.T) {
 		t.Fatal("engine rebuilt with unchanged selection")
 	}
 }
+
+func TestBuildDirectivesTuning(t *testing.T) {
+	out, err := buildDirectives(nil, "", 2, 8, []int{942100, 941110})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"paranoia_level=2",
+		"inbound_anomaly_score_threshold=8",
+		"SecRuleRemoveById 941110 942100",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("directives missing %q", want)
+		}
+	}
+}

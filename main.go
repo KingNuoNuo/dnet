@@ -210,6 +210,22 @@ func main() {
 		helper.Warn(helper.LogTypeSystem, "启动时读取配置失败，跳过服务商凭据迁移: %v", err)
 	}
 
+	// WAF 统计排除本机/内网来源：网段自动识别，公网地址通过 ipify 探测并定期刷新。
+	if conf, err := configRepo.Load(); err == nil {
+		if err := waf.SetExcludedIPs(conf.WAFExcludeIPs); err != nil {
+			helper.Warn(helper.LogTypeWebService, "WAF 统计排除列表无效: %v", err)
+		}
+	}
+	waf.RefreshLocalNetworks()
+	go func() {
+		waf.RefreshPublicIPs(context.Background())
+		ticker := time.NewTicker(30 * time.Minute)
+		for range ticker.C {
+			waf.RefreshLocalNetworks()
+			waf.RefreshPublicIPs(context.Background())
+		}
+	}()
+
 	syncRunner = bootstrap.NewRunner(configRepo)
 	web.SetEmbeddedAssets(staticEmbeddedFiles, faviconEmbeddedFile)
 	webServer = web.NewServer(configRepo, syncRunner)
@@ -283,6 +299,26 @@ func run() {
 	go webServer.RunCertificateMaintenance(shutdown)
 	if conf, err := configRepo.Load(); err == nil {
 		conf.NormalizeWAF()
+		guard := conf.WAFGuard.Normalized()
+		waf.ConfigureGuard(waf.GuardSettingsFrom(guard.BanEnabled, guard.Threshold, guard.WindowMinutes, guard.BanMinutes, guard.RateLimit, guard.Burst, guard.Whitelist))
+		security := conf.Security.Normalized()
+		webServiceManager.SetSecurity(webservice.SecurityOptions{
+			HSTS:          security.HSTS,
+			HSTSMaxAge:    security.HSTSMaxAge,
+			HideServer:    security.HideServer,
+			TLSMinVersion: webservice.TLSVersion(security.TLSMinVersion),
+		})
+		helper.Info(helper.LogTypeWebService, "防护设置: 自动封禁=%t(阈值=%d/%d分钟, 封禁%d分钟), 限速=%d/s, TLS≥%s, HSTS=%t, 隐藏Server=%t",
+			guard.BanEnabled, guard.Threshold, guard.WindowMinutes, guard.BanMinutes, guard.RateLimit,
+			security.TLSMinVersion, security.HSTS, security.HideServer)
+		waf.SetBanNotifier(func(ip string, until time.Time) {
+			latest, loadErr := configRepo.Load()
+			if loadErr != nil {
+				return
+			}
+			config.ExecWebhook(&latest.Webhook, "WAF", ip, "banned",
+				fmt.Sprintf("IP %s 多次触发 WAF，已临时封禁至 %s", ip, until.Format("2006-01-02 15:04:05")))
+		})
 		if conf.WebServiceEnabled {
 			webServiceManager.SetWAFPolicies(conf.WAFPolicies)
 			if err := webServiceManager.ApplyCertificates(conf.WebServiceRules, conf.Certificates, nil); err != nil {

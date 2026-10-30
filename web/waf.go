@@ -7,9 +7,12 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strings"
 
+	"github.com/cxbdasheng/dnet/config"
 	"github.com/cxbdasheng/dnet/helper"
 	"github.com/cxbdasheng/dnet/waf"
+	"github.com/cxbdasheng/dnet/webservice"
 )
 
 //go:embed waf.html
@@ -57,7 +60,21 @@ func (s *Server) WAFAPI(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		var payload struct {
-			Policies []waf.Policy `json:"policies"`
+			Action        string       `json:"action"`
+			Policies      []waf.Policy `json:"policies"`
+			ExcludeIPs    []string     `json:"exclude_ips"`
+			BanEnabled    bool         `json:"ban_enabled"`
+			Threshold     int          `json:"threshold"`
+			WindowMinutes int          `json:"window_minutes"`
+			BanMinutes    int          `json:"ban_minutes"`
+			RateLimit     int          `json:"rate_limit"`
+			Burst         int          `json:"burst"`
+			Whitelist     []string     `json:"whitelist"`
+			HSTS          bool         `json:"hsts"`
+			HSTSMaxAge    int          `json:"hsts_max_age"`
+			HideServer    bool         `json:"hide_server"`
+			TLSMinVersion string       `json:"tls_min_version"`
+			IP            string       `json:"ip"`
 		}
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
 		decoder.DisallowUnknownFields()
@@ -69,44 +86,121 @@ func (s *Server) WAFAPI(w http.ResponseWriter, r *http.Request) {
 			helper.ReturnError(w, "请求只能包含一个 JSON 对象")
 			return
 		}
-		policies, err := normalizePolicies(payload.Policies)
-		if err != nil {
-			helper.ReturnError(w, err.Error())
-			return
-		}
-		conf.WAFPolicies = policies
-		// 删除策略后，引用它的服务回退为「不启用」。
-		known := make(map[string]bool, len(policies))
-		for _, policy := range policies {
-			known[policy.ID] = true
-		}
-		for i := range conf.WebServiceRules {
-			rule := &conf.WebServiceRules[i]
-			if rule.WAFPolicyID != "" && !known[rule.WAFPolicyID] {
-				rule.WAFPolicyID = ""
-				rule.WAFEnabled = false
+		switch payload.Action {
+		case "exclude_save":
+			normalized, err := waf.NormalizeExclusions(payload.ExcludeIPs)
+			if err != nil {
+				helper.ReturnError(w, err.Error())
+				return
 			}
+			if err := waf.SetExcludedIPs(normalized); err != nil {
+				helper.ReturnError(w, err.Error())
+				return
+			}
+			conf.WAFExcludeIPs = normalized
+			if err := s.configRepo.Save(&conf); err != nil {
+				helper.ReturnError(w, "保存失败: "+err.Error())
+				return
+			}
+			helper.Info(helper.LogTypeWebService, "WAF 统计排除列表已更新 [%d 项]", len(normalized))
+		case "guard_save":
+			guard := config.WAFGuard{
+				BanEnabled:    payload.BanEnabled,
+				Threshold:     payload.Threshold,
+				WindowMinutes: payload.WindowMinutes,
+				BanMinutes:    payload.BanMinutes,
+				RateLimit:     payload.RateLimit,
+				Burst:         payload.Burst,
+				Whitelist:     payload.Whitelist,
+			}.Normalized()
+			security := config.Security{
+				HSTS:          payload.HSTS,
+				HSTSMaxAge:    payload.HSTSMaxAge,
+				HideServer:    payload.HideServer,
+				TLSMinVersion: payload.TLSMinVersion,
+			}.Normalized()
+			conf.WAFGuard = guard
+			conf.Security = security
+			waf.ConfigureGuard(waf.GuardSettingsFrom(guard.BanEnabled, guard.Threshold, guard.WindowMinutes, guard.BanMinutes, guard.RateLimit, guard.Burst, guard.Whitelist))
+			s.WebServices.SetSecurity(webservice.SecurityOptions{
+				HSTS:          security.HSTS,
+				HSTSMaxAge:    security.HSTSMaxAge,
+				HideServer:    security.HideServer,
+				TLSMinVersion: webservice.TLSVersion(security.TLSMinVersion),
+			})
+			if err := s.configRepo.Save(&conf); err != nil {
+				helper.ReturnError(w, "保存失败: "+err.Error())
+				return
+			}
+			active := conf.WebServiceRules
+			if !conf.WebServiceEnabled {
+				active = nil
+			}
+			if err := s.WebServices.ApplyCertificates(active, conf.Certificates, nil); err != nil {
+				helper.ReturnError(w, "设置已保存，但应用失败: "+err.Error())
+				return
+			}
+			helper.Info(helper.LogTypeWebService, "WAF 防护设置已保存 [封禁=%t, 阈值=%d, 限速=%d/s, TLS=%s]",
+				guard.BanEnabled, guard.Threshold, guard.RateLimit, security.TLSMinVersion)
+		case "unban":
+			if strings.TrimSpace(payload.IP) == "" {
+				helper.ReturnError(w, "缺少要解封的 IP")
+				return
+			}
+			waf.Unban(payload.IP)
+			helper.Info(helper.LogTypeWebService, "WAF 已手动解封 [%s]", payload.IP)
+		default:
+			policies, err := normalizePolicies(payload.Policies)
+			if err != nil {
+				helper.ReturnError(w, err.Error())
+				return
+			}
+			conf.WAFPolicies = policies
+			known := make(map[string]bool, len(policies))
+			for _, policy := range policies {
+				known[policy.ID] = true
+			}
+			for i := range conf.WebServiceRules {
+				rule := &conf.WebServiceRules[i]
+				if rule.WAFPolicyID != "" && !known[rule.WAFPolicyID] {
+					rule.WAFPolicyID = ""
+					rule.WAFEnabled = false
+				}
+			}
+			s.WebServices.SetWAFPolicies(policies)
+			active := conf.WebServiceRules
+			if !conf.WebServiceEnabled {
+				active = nil
+			}
+			if err := s.WebServices.ApplyCertificates(active, conf.Certificates, func() error { return s.configRepo.Save(&conf) }); err != nil {
+				helper.Error(helper.LogTypeWebService, "WAF 策略应用失败: %v", err)
+				helper.ReturnError(w, err.Error())
+				return
+			}
+			helper.Info(helper.LogTypeWebService, "WAF 策略已保存并应用 [策略数=%d]", len(policies))
 		}
-		s.WebServices.SetWAFPolicies(policies)
-		active := conf.WebServiceRules
-		if !conf.WebServiceEnabled {
-			active = nil
-		}
-		if err := s.WebServices.ApplyCertificates(active, conf.Certificates, func() error { return s.configRepo.Save(&conf) }); err != nil {
-			helper.Error(helper.LogTypeWebService, "WAF 策略应用失败: %v", err)
-			helper.ReturnError(w, err.Error())
-			return
-		}
-		helper.Info(helper.LogTypeWebService, "WAF 策略已保存并应用 [策略数=%d]", len(policies))
 	}
 	groups, err := waf.Catalog()
 	if err != nil {
 		helper.ReturnError(w, err.Error())
 		return
 	}
+	manual, auto := waf.Exclusions()
+	guard := conf.WAFGuard.Normalized()
+	security := conf.Security.Normalized()
 	helper.ReturnSuccess(w, "", struct {
 		Groups   []waf.RuleGroup `json:"groups"`
 		Policies []waf.Policy    `json:"policies"`
 		Stats    waf.Stats       `json:"stats"`
-	}{groups, conf.WAFPolicies, waf.Snapshot()})
+		Excluded struct {
+			Manual []string `json:"manual"`
+			Auto   []string `json:"auto"`
+		} `json:"excluded"`
+		Guard    config.WAFGuard `json:"guard"`
+		Security config.Security `json:"security"`
+		Bans     []waf.Ban       `json:"bans"`
+	}{groups, conf.WAFPolicies, waf.Snapshot(), struct {
+		Manual []string `json:"manual"`
+		Auto   []string `json:"auto"`
+	}{manual, auto}, guard, security, waf.Bans()})
 }

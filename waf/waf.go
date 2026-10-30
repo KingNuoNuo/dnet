@@ -172,7 +172,7 @@ func NormalizeDisabled(disabled []int) []int {
 	return out
 }
 
-func buildDirectives(disabled []int, custom string) (string, error) {
+func buildDirectives(disabled []int, custom string, paranoia, threshold int, excluded []int) (string, error) {
 	if err := loadGroups(); err != nil {
 		return "", err
 	}
@@ -231,6 +231,27 @@ func buildDirectives(disabled []int, custom string) (string, error) {
 	directives.WriteString("SecRequestBodyLimitAction ProcessPartial\n")
 	directives.WriteString("SecResponseBodyAccess Off\n")
 
+	if paranoia < 1 {
+		paranoia = 1
+	}
+	if paranoia > 4 {
+		paranoia = 4
+	}
+	if threshold <= 0 {
+		threshold = 5
+	}
+	directives.WriteString(fmt.Sprintf("SecAction \"id:999000,phase:1,nolog,pass,t:none,setvar:tx.paranoia_level=%d\"\n", paranoia))
+	directives.WriteString(fmt.Sprintf("SecAction \"id:999001,phase:1,nolog,pass,t:none,setvar:tx.inbound_anomaly_score_threshold=%d\"\n", threshold))
+	if len(excluded) > 0 {
+		ids := make([]string, 0, len(excluded))
+		sorted := append([]int(nil), excluded...)
+		sort.Ints(sorted)
+		for _, id := range sorted {
+			ids = append(ids, strconv.Itoa(id))
+		}
+		directives.WriteString("SecRuleRemoveById " + strings.Join(ids, " ") + "\n")
+	}
+
 	if custom = strings.TrimSpace(custom); custom != "" {
 		directives.WriteString("\n# 用户自定义 SecLang 规则\n")
 		directives.WriteString(custom)
@@ -264,6 +285,12 @@ type Policy struct {
 	Name             string `json:"name" yaml:"name"`
 	DisabledGroups   []int  `json:"disabled" yaml:"disabled,omitempty"`
 	CustomDirectives string `json:"custom" yaml:"custom,omitempty"`
+	// Paranoia 是 CRS 偏执等级（1-4），留空按 1。
+	Paranoia int `json:"paranoia,omitempty" yaml:"paranoia,omitempty"`
+	// Threshold 是入站异常分阈值，默认 5。
+	Threshold int `json:"threshold,omitempty" yaml:"threshold,omitempty"`
+	// ExcludedRules 是按规则 ID 关闭的检测规则（比整组关闭更精细）。
+	ExcludedRules []int `json:"excluded_rules,omitempty" yaml:"excluded_rules,omitempty"`
 }
 
 var (
@@ -275,16 +302,19 @@ var (
 // keyed by their effective directives, so policies with identical settings
 // share one instance and unchanged settings never rebuild.
 func EngineFor(policy Policy) (*Engine, error) {
-	disabled := NormalizeDisabled(policy.DisabledGroups)
-	custom := strings.TrimSpace(policy.CustomDirectives)
-	key := strings.Join(intSliceToStrings(disabled), ",") + "\x00" + custom
+	policy = NormalizePolicy(policy)
+	disabled := policy.DisabledGroups
+	custom := policy.CustomDirectives
+	key := strings.Join(intSliceToStrings(disabled), ",") + "\x00" + custom +
+		fmt.Sprintf("\x00%d\x00%d\x00%s", policy.Paranoia, policy.Threshold,
+			strings.Join(intSliceToStrings(policy.ExcludedRules), ","))
 
 	engineMu.Lock()
 	defer engineMu.Unlock()
 	if engine, ok := engineCache[key]; ok {
 		return engine, nil
 	}
-	directives, err := buildDirectives(disabled, custom)
+	directives, err := buildDirectives(disabled, custom, policy.Paranoia, policy.Threshold, policy.ExcludedRules)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +336,34 @@ func NormalizePolicy(policy Policy) Policy {
 	policy.Name = strings.TrimSpace(policy.Name)
 	policy.CustomDirectives = strings.TrimSpace(policy.CustomDirectives)
 	policy.DisabledGroups = NormalizeDisabled(policy.DisabledGroups)
+	if policy.Paranoia < 1 {
+		policy.Paranoia = 1
+	}
+	if policy.Paranoia > 4 {
+		policy.Paranoia = 4
+	}
+	if policy.Threshold <= 0 {
+		policy.Threshold = 5
+	}
+	if policy.Threshold > 100 {
+		policy.Threshold = 100
+	}
+	policy.ExcludedRules = normalizeRuleIDs(policy.ExcludedRules)
 	return policy
+}
+
+func normalizeRuleIDs(ids []int) []int {
+	seen := map[int]bool{}
+	out := make([]int, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	sort.Ints(out)
+	return out
 }
 
 // New parses the supplied SecLang directives into an engine. Includes resolve
@@ -358,12 +415,17 @@ func (e *Engine) Handler(name string, next http.Handler) http.Handler {
 				status = http.StatusForbidden
 			}
 			summary := matchedSummary(tx)
-			helper.Warn(helper.LogTypeWebService, "[%s] Coraza WAF 拦截 %s %s（来源 %s，规则 %d，动作 %s%s）",
-				name, r.Method, r.URL.RequestURI(), clientIP(r), it.RuleID, it.Action, summary)
-			Record(BlockEvent{
+			recorded := Record(BlockEvent{
 				Site: name, IP: clientIP(r), Method: r.Method, Path: r.URL.RequestURI(),
 				RuleID: it.RuleID, Rules: summary, Status: status,
 			})
+			if !recorded {
+				summary += "（本机来源，已从统计排除）"
+			} else if banned, until := RecordBlock(clientIP(r)); banned {
+				helper.Warn(helper.LogTypeWebService, "WAF 已临时封禁来源 %s 至 %s", clientIP(r), until.Format("2006-01-02 15:04:05"))
+			}
+			helper.Warn(helper.LogTypeWebService, "[%s] Coraza WAF 拦截 %s %s（来源 %s，规则 %d，动作 %s%s）",
+				name, r.Method, r.URL.RequestURI(), clientIP(r), it.RuleID, it.Action, summary)
 			block(w, status)
 			return
 		}
@@ -460,6 +522,11 @@ func splitAddress(remote string) (string, int) {
 	}
 	value, _ := strconv.Atoi(port)
 	return host, value
+}
+
+// ClientIP 返回请求的真实来源地址（优先 CDN 回源头，仅用于日志与统计）。
+func ClientIP(r *http.Request) string {
+	return clientIP(r)
 }
 
 func clientIP(r *http.Request) string {
