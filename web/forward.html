@@ -449,9 +449,108 @@
               <div class="f wide">
                 <span></span>
                 <button type="button" class="layui-btn layui-btn-primary layui-btn-sm" data-probe>测试目标</button>
+                <button type="button" class="layui-btn layui-btn-primary layui-btn-sm" data-convert>转为 Web 服务</button>
               </div>
             </div>`;
           return el;
+        }
+
+        async function openConvert(rule) {
+          const issue = ruleError(rule);
+          if (issue) {
+            layer.msg(`${rule.name || "未命名"}：${issue[1]}`, { icon: 2, time: 2500 });
+            return;
+          }
+          let certs = [];
+          let policies = [];
+          try {
+            const [certList, waf] = await Promise.all([
+              api(null, "/api/certificates"),
+              api(null, "/api/waf"),
+            ]);
+            certs = certList || [];
+            policies = (waf && waf.policies) || [];
+          } catch (err) {
+            layer.msg("加载证书 / WAF 策略失败：" + err.message, { icon: 2, time: 4000 });
+            return;
+          }
+          const certOptions = certs.length
+            ? certs
+                .map((c) => {
+                  const names = (c.covered_domains && c.covered_domains.length)
+                    ? "（" + esc(c.covered_domains.join(", ")) + "）"
+                    : "";
+                  return `<option value="${esc(c.id)}">${esc(c.name)}${names}</option>`;
+                })
+                .join("")
+            : `<option value="">（请先在「证书」页添加）</option>`;
+          const wafOptions =
+            `<option value="">不启用</option>` +
+            policies
+              .map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`)
+              .join("");
+          const content = `
+            <div style="padding:16px 20px">
+              <p class="note" style="margin-top:0">把这条端口转发改成 DWS 反向代理：端口和备注不变，可挂证书与 WAF 策略。转换后原转发规则会保留但停用。</p>
+              <div class="layui-form-item"><label class="layui-form-label">访问域名</label><div class="layui-input-block"><input id="cv-domain" class="layui-input" placeholder="nas.c90.top"></div></div>
+              <div class="layui-form-item"><label class="layui-form-label">目标协议</label><div class="layui-input-block"><select id="cv-scheme" class="layui-input" style="width:100%;height:38px"><option value="http">HTTP</option><option value="https">HTTPS</option></select></div></div>
+              <div class="layui-form-item" id="cv-verify-row" hidden><label class="layui-form-label">跳过证书校验</label><div class="layui-input-block"><label style="display:inline-flex;align-items:center;gap:0.5em"><input type="checkbox" id="cv-skip"> 上游是自签名证书或证书名与地址不一致时勾选</label></div></div>
+              <div class="layui-form-item"><label class="layui-form-label">对外 HTTPS</label><div class="layui-input-block"><label style="display:inline-flex;align-items:center;gap:0.5em"><input type="checkbox" id="cv-tls" checked> 用证书对外提供 HTTPS</label></div></div>
+              <div class="layui-form-item" id="cv-cert-row"><label class="layui-form-label">证书</label><div class="layui-input-block"><select id="cv-cert" class="layui-input" style="width:100%;height:38px">${certOptions}</select></div></div>
+              <div class="layui-form-item" id="cv-force-row"><label class="layui-form-label">强制 HTTPS</label><div class="layui-input-block"><label style="display:inline-flex;align-items:center;gap:0.5em"><input type="checkbox" id="cv-force" checked> HTTP 请求 307 跳转到 HTTPS</label></div></div>
+              <div class="layui-form-item"><label class="layui-form-label">WAF 策略</label><div class="layui-input-block"><select id="cv-waf" class="layui-input" style="width:100%;height:38px">${wafOptions}</select></div></div>
+              <p class="note">目标地址：${esc(rule.target_host)}:${esc(num(rule.target_port))}；域名需解析到本机，且证书要覆盖该域名。</p>
+            </div>`;
+          layer.open({
+            type: 1,
+            title: "转为 Web 服务（带 WAF）",
+            area: "640px",
+            content,
+            btn: ["转换", "取消"],
+            yes(index) {
+              const domain = document.getElementById("cv-domain").value.trim();
+              if (!domain) {
+                layer.msg("请填写访问域名", { icon: 2 });
+                return;
+              }
+              const tls = document.getElementById("cv-tls").checked;
+              const cert = document.getElementById("cv-cert").value;
+              if (tls && !cert) {
+                layer.msg("启用 HTTPS 需要先添加并选择证书", { icon: 2, time: 3000 });
+                return;
+              }
+              const payload = {
+                forward_id: rule.id,
+                domain,
+                target_scheme: document.getElementById("cv-scheme").value,
+                insecure_skip_verify: document.getElementById("cv-skip").checked,
+                tls,
+                certificate_id: cert,
+                force_https: tls && document.getElementById("cv-force").checked,
+                waf_policy_id: document.getElementById("cv-waf").value,
+              };
+              api(payload, "/api/forward/convert")
+                .then(() => {
+                  layer.close(index);
+                  layer.msg("已转换为 Web 服务，原端口转发已停用", { icon: 1, time: 2500 });
+                  return reload();
+                })
+                .catch((err) => layer.msg(err.message, { icon: 2, time: 5000 }));
+            },
+          });
+          setTimeout(() => {
+            const scheme = document.getElementById("cv-scheme");
+            const tls = document.getElementById("cv-tls");
+            if (!scheme || !tls) return;
+            const sync = () => {
+              document.getElementById("cv-verify-row").hidden = scheme.value !== "https";
+              document.getElementById("cv-cert-row").hidden = !tls.checked;
+              document.getElementById("cv-force-row").hidden = !tls.checked;
+            };
+            scheme.onchange = sync;
+            tls.onchange = sync;
+            sync();
+          }, 0);
         }
 
         function renderRows() {
@@ -856,6 +955,12 @@
                 button.disabled = busy || !loaded;
                 button.textContent = "测试目标";
               });
+            return;
+          }
+          if (e.target.closest("[data-convert]")) {
+            const rule = rules.find((r) => r.id === row.dataset.id);
+            if (!rule || busy) return;
+            openConvert(rule);
             return;
           }
           // 点行的空白处＝选中该行（原「配置」下拉的职责，那栏已移除）。

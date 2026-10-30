@@ -53,6 +53,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/forward", s.Auth(s.ForwardPage))
 	mux.HandleFunc("/api/forward", s.Auth(s.ForwardAPI))
 	mux.HandleFunc("/api/forward/probe", s.Auth(s.ForwardProbe))
+	mux.HandleFunc("/api/forward/convert", s.Auth(s.ForwardConvertAPI))
 	mux.HandleFunc("/api/forward/logs", s.Auth(s.ForwardLogs))
 	mux.HandleFunc("/ddns", s.Auth(s.DDNS))
 	mux.HandleFunc("/api/ddns/probe", s.Auth(s.DDNSProbe))
