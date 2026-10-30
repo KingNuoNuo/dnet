@@ -1,6 +1,7 @@
 package waf
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -54,5 +55,34 @@ func TestNormalizeIP(t *testing.T) {
 		if got := normalizeIP(in); got != want {
 			t.Errorf("normalizeIP(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestGeoIPCountryLookup(t *testing.T) {
+	path := os.Getenv("DNET_GEOIP_TEST_DB")
+	if path == "" {
+		t.Skip("set DNET_GEOIP_TEST_DB to an mmdb file to run")
+	}
+	if err := SetGeoIP(path); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		blockStats.Lock()
+		db := blockStats.geo
+		blockStats.geo = nil
+		blockStats.geoPath = ""
+		blockStats.Unlock()
+		if db != nil {
+			db.Close()
+		}
+	})
+	resetStatsForTest()
+	Record(BlockEvent{Site: "t", IP: "8.8.8.8"})
+	stats := Snapshot()
+	if !stats.GeoReady || len(stats.TopIPs) != 1 {
+		t.Fatalf("stats = %+v", stats)
+	}
+	if stats.TopIPs[0].Code != "US" {
+		t.Fatalf("8.8.8.8 country = %q %q", stats.TopIPs[0].Code, stats.TopIPs[0].Country)
 	}
 }
