@@ -345,6 +345,10 @@ func (e *Engine) Handler(name string, next http.Handler) http.Handler {
 			// Inspection must not silently degrade into "no protection": a body
 			// that cannot be checked is not forwarded.
 			helper.Error(helper.LogTypeWebService, "[%s] Coraza WAF 检查请求失败，已拒绝: %v", name, err)
+			Record(BlockEvent{
+				Site: name, IP: clientIP(r), Method: r.Method, Path: r.URL.RequestURI(),
+				Rules: "检查失败: " + err.Error(), Status: http.StatusForbidden,
+			})
 			block(w, http.StatusForbidden)
 			return
 		}
@@ -353,8 +357,13 @@ func (e *Engine) Handler(name string, next http.Handler) http.Handler {
 			if status < 400 || status > 599 {
 				status = http.StatusForbidden
 			}
+			summary := matchedSummary(tx)
 			helper.Warn(helper.LogTypeWebService, "[%s] Coraza WAF 拦截 %s %s（来源 %s，规则 %d，动作 %s%s）",
-				name, r.Method, r.URL.RequestURI(), clientIP(r), it.RuleID, it.Action, matchedSummary(tx))
+				name, r.Method, r.URL.RequestURI(), clientIP(r), it.RuleID, it.Action, summary)
+			Record(BlockEvent{
+				Site: name, IP: clientIP(r), Method: r.Method, Path: r.URL.RequestURI(),
+				RuleID: it.RuleID, Rules: summary, Status: status,
+			})
 			block(w, status)
 			return
 		}
@@ -454,6 +463,24 @@ func splitAddress(remote string) (string, int) {
 }
 
 func clientIP(r *http.Request) string {
+	// CDN（阿里云 ESA 等）回源时把真实客户端地址放在这些头里；直连时
+	// 这些头可能被伪造，但这里只用于日志与统计，不参与放行判断。
+	for _, header := range []string{"Ali-CDN-Real-IP", "X-Real-IP", "X-Forwarded-For"} {
+		value := strings.TrimSpace(r.Header.Get(header))
+		if value == "" {
+			continue
+		}
+		if header == "X-Forwarded-For" {
+			value = strings.TrimSpace(strings.Split(value, ",")[0])
+		}
+		if host, _, err := net.SplitHostPort(value); err == nil {
+			value = host
+		}
+		value = strings.Trim(value, "[]")
+		if net.ParseIP(value) != nil {
+			return value
+		}
+	}
 	host, _ := splitAddress(r.RemoteAddr)
 	return host
 }

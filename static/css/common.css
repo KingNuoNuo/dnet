@@ -3315,8 +3315,8 @@ select:focus-visible,
    每一行的格子数与下面的 --rule-cols 段数必须一致，多一个少一个都会让末尾的
    删除按钮跑到第二行去 —— 改列的时候两边一起改。 */
 .dnet-rules.rules-dws {
-    --rule-cols: 28px 128px minmax(160px, 420px) 108px minmax(160px, 420px) 116px minmax(80px, 150px) 40px;
-    max-width: 1466px; /* 各列上限之和 1410 + 7 个 8px 列距，限宽靠左（同 rules-dpf） */
+    --rule-cols: 28px 128px minmax(150px, 380px) 108px minmax(150px, 380px) 116px 150px 88px minmax(80px, 150px) 40px;
+    max-width: 1640px; /* 10 列上限之和 1568 + 9 个 8px 列距 */
 }
 
 .dnet-rules.rules-ddns {
@@ -3715,8 +3715,8 @@ select:focus-visible,
    三页各自给一个能正常编辑的最小宽度。 */
 @media screen and (max-width: 992px) {
     .dnet-rules.rules-dws {
-        --rule-cols: 26px 116px minmax(150px, 1.3fr) 96px minmax(150px, 1.3fr) 104px minmax(110px, 1fr) 36px;
-        min-width: 940px;
+        --rule-cols: 26px 116px minmax(140px, 1.2fr) 96px minmax(140px, 1.2fr) 104px 130px 80px minmax(100px, 1fr) 36px;
+        min-width: 1060px;
         max-width: none;
     }
 

@@ -107,5 +107,6 @@ func (s *Server) WAFAPI(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnSuccess(w, "", struct {
 		Groups   []waf.RuleGroup `json:"groups"`
 		Policies []waf.Policy    `json:"policies"`
-	}{groups, conf.WAFPolicies})
+		Stats    waf.Stats       `json:"stats"`
+	}{groups, conf.WAFPolicies, waf.Snapshot()})
 }

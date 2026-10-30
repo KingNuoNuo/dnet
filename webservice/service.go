@@ -2,10 +2,12 @@
 package webservice
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"fmt"
 	"html/template"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -14,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cxbdasheng/dnet/certificates"
@@ -231,7 +234,45 @@ type site struct {
 
 var jumpPage = template.Must(template.New("jump").Parse(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>正在跳转</title></head><body><p>正在跳转，如未自动跳转，请<a href="{{.}}">点击继续</a>。</p><script>window.location.replace({{.}});</script></body></html>`))
 
-func newSite(r Rule, rules []Rule, engine *waf.Engine) *site {
+// countingWriter 统计响应字节数，同时保留 Hijacker/Flusher 以便 WebSocket 升级。
+type countingWriter struct {
+	http.ResponseWriter
+	written *atomic.Uint64
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(p)
+	w.written.Add(uint64(n))
+	return n, err
+}
+
+func (w *countingWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *countingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("响应不支持连接劫持")
+	}
+	return h.Hijack()
+}
+
+// countingReader 统计请求体字节数（上行流量）。
+type countingReader struct {
+	io.ReadCloser
+	read *atomic.Uint64
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	r.read.Add(uint64(n))
+	return n, err
+}
+
+func newSite(r Rule, rules []Rule, engine *waf.Engine, st *ruleStats) *site {
 	target, _ := url.Parse(r.Target)
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
@@ -291,6 +332,14 @@ func newSite(r Rule, rules []Rule, engine *waf.Engine) *site {
 	s := &site{rule: r, transport: transport}
 	auth := newAccessAuth()
 	s.handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if st != nil {
+			st.active.Add(1)
+			defer st.active.Add(-1)
+			w = &countingWriter{ResponseWriter: w, written: &st.download}
+			if req.Body != nil {
+				req.Body = &countingReader{ReadCloser: req.Body, read: &st.upload}
+			}
+		}
 		if r.AuthEnabled {
 			if code := auth.check(req, r, time.Now()); code != 0 {
 				if code == http.StatusTooManyRequests {
@@ -470,17 +519,43 @@ func (g *group) close() {
 }
 
 type Status struct {
-	ID        string `json:"id"`
-	Listening bool   `json:"listening"`
+	ID          string `json:"id"`
+	Listening   bool   `json:"listening"`
+	Connections int    `json:"connections"`
+	Upload      int64  `json:"upload"`
+	Download    int64  `json:"download"`
 }
+
+// ruleStats 是单条 Web 服务的累计流量与当前并发请求数。
+type ruleStats struct {
+	upload   atomic.Uint64
+	download atomic.Uint64
+	active   atomic.Int64
+}
+
 type Manager struct {
 	mu          sync.Mutex
 	groups      map[string]*group
 	closed      bool
 	wafPolicies []waf.Policy
+	stats       map[string]*ruleStats
 }
 
-func NewManager() *Manager { return &Manager{groups: map[string]*group{}} }
+func (m *Manager) statsFor(id string) *ruleStats {
+	if m.stats == nil {
+		m.stats = map[string]*ruleStats{}
+	}
+	st := m.stats[id]
+	if st == nil {
+		st = &ruleStats{}
+		m.stats[id] = st
+	}
+	return st
+}
+
+func NewManager() *Manager {
+	return &Manager{groups: map[string]*group{}, stats: map[string]*ruleStats{}}
+}
 func (m *Manager) Status() []Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -493,10 +568,17 @@ func (m *Manager) Status() []Status {
 				out[index].Listening = out[index].Listening && g.listening
 			} else {
 				indexes[s.rule.ID] = len(out)
-				out = append(out, Status{s.rule.ID, g.listening})
+				out = append(out, Status{ID: s.rule.ID, Listening: g.listening})
 			}
 		}
 		g.mu.RUnlock()
+	}
+	for i := range out {
+		if st := m.stats[out[i].ID]; st != nil {
+			out[i].Connections = int(st.active.Load())
+			out[i].Upload = int64(st.upload.Load())
+			out[i].Download = int64(st.download.Load())
+		}
 	}
 	return out
 }
@@ -533,7 +615,7 @@ func (m *Manager) Apply(rules []Rule, save func() error) error {
 		if routes[key] == nil {
 			routes[key] = map[string]*site{}
 		}
-		routes[key][domain(r.Domain)] = newSite(r, rules, engines[r.WAFPolicyID])
+		routes[key][domain(r.Domain)] = newSite(r, rules, engines[r.WAFPolicyID], m.statsFor(r.ID))
 		if next[key] != nil {
 			continue
 		}

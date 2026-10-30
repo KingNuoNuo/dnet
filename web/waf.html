@@ -93,6 +93,32 @@
           </div>
         </div>
       </form>
+
+      <div class="layui-card" id="waf-stats-card">
+        <div class="layui-card-body">
+          <div class="dnet-group">
+            <span class="t">拦截统计</span>
+          </div>
+          <p class="note" id="waf-stats-summary" style="margin-top:0">正在读取…</p>
+          <div style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start">
+            <div style="flex:1;min-width:220px">
+              <b style="font-size:13px">按国家 / 地区</b>
+              <div id="waf-stats-countries" style="margin-top:6px"></div>
+            </div>
+            <div style="flex:1;min-width:240px">
+              <b style="font-size:13px">来源 IP Top</b>
+              <div id="waf-stats-ips" style="margin-top:6px"></div>
+            </div>
+            <div style="flex:1;min-width:180px">
+              <b style="font-size:13px">按 Web 服务</b>
+              <div id="waf-stats-sites" style="margin-top:6px"></div>
+            </div>
+          </div>
+          <p style="margin:16px 0 6px"><b style="font-size:13px">最近拦截</b></p>
+          <div id="waf-stats-recent" style="max-height:320px;overflow:auto"></div>
+          <p class="note" id="waf-stats-geoip"></p>
+        </div>
+      </div>
     </div>
   </body>
 
@@ -235,6 +261,69 @@
         renderAll(true);
       }
 
+      function statLine(left, right, title) {
+        return `<div title="${esc(title || "")}" style="display:flex;justify-content:space-between;gap:12px;padding:3px 0;font-size:12.5px;border-bottom:1px dashed rgba(0,0,0,.06)"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(left)}</span><b style="flex:0 0 auto;font-weight:600">${esc(right)}</b></div>`;
+      }
+      function renderStats(stats) {
+        stats = stats || {};
+        const total = stats.total || 0;
+        $("waf-stats-summary").textContent =
+          `自上次启动以来拦截 ${total} 次，独立来源 IP ${stats.unique_ips || 0} 个` +
+          (stats.since
+            ? `（统计起点 ${new Date(stats.since).toLocaleString("zh-CN")}）`
+            : "");
+        $("waf-stats-countries").innerHTML = (stats.countries || []).length
+          ? stats.countries
+              .map((c) => statLine(c.name || c.code || "未知", c.count + " 次"))
+              .join("")
+          : '<div class="note">暂无</div>';
+        $("waf-stats-ips").innerHTML = (stats.top_ips || []).length
+          ? stats.top_ips
+              .map((i) =>
+                statLine(
+                  `${i.ip}${i.country ? " · " + i.country : ""}`,
+                  i.count + " 次",
+                  `${i.last_site || ""} ${i.last_path || ""}`,
+                ),
+              )
+              .join("")
+          : '<div class="note">暂无</div>';
+        $("waf-stats-sites").innerHTML = (stats.sites || []).length
+          ? stats.sites
+              .map((s) => statLine(s.site || "未命名", s.count + " 次"))
+              .join("")
+          : '<div class="note">暂无</div>';
+        const recent = stats.recent || [];
+        $("waf-stats-recent").innerHTML = recent.length
+          ? recent
+              .map((e) => {
+                const when = e.time
+                  ? new Date(e.time).toLocaleString("zh-CN")
+                  : "";
+                const where = [e.method, e.path].filter(Boolean).join(" ");
+                return `<div style="display:flex;gap:10px;padding:4px 0;font-size:12.5px;border-bottom:1px dashed rgba(0,0,0,.06)">
+                  <span style="flex:0 0 140px;color:#888">${esc(when)}</span>
+                  <span style="flex:0 0 90px">${esc(e.site || "")}</span>
+                  <span style="flex:0 0 180px">${esc(e.ip || "")}${e.country ? " · " + esc(e.country) : ""}</span>
+                  <span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.rules || "")}">${esc(where)}</span>
+                </div>`;
+              })
+              .join("")
+          : '<div class="note">暂无拦截记录</div>';
+        $("waf-stats-geoip").textContent = stats.geo_ready
+          ? `IP 归属地库：${stats.geo_path || ""}`
+          : "未加载 IP 归属地库：把 GeoLite2-Country.mmdb 放到配置目录（与 master.key 同目录）后重启 dnet，即可显示国家 / 地区。";
+      }
+      async function refreshStats() {
+        if (busy || !loaded) return;
+        try {
+          const data = await api();
+          renderStats(data.stats || {});
+        } catch (e) {
+          // 统计失败不打断正在编辑的表单
+        }
+      }
+
       function restore(data) {
         groups = data.groups || [];
         policies = (data.policies || []).map((p) => ({
@@ -249,6 +338,7 @@
         index = Math.min(index, policies.length - 1);
         dirty = false;
         renderAll(true);
+        renderStats(data.stats || {});
       }
 
       async function submit() {
@@ -349,6 +439,7 @@
           restore(data);
         })
         .catch(error);
+      setInterval(refreshStats, 15000);
     });
   </script>
 </html>

@@ -25,6 +25,7 @@ import (
 	"github.com/cxbdasheng/dnet/forward"
 	"github.com/cxbdasheng/dnet/helper"
 	"github.com/cxbdasheng/dnet/helper/update"
+	"github.com/cxbdasheng/dnet/waf"
 	"github.com/cxbdasheng/dnet/web"
 	"github.com/cxbdasheng/dnet/webservice"
 	"github.com/kardianos/service"
@@ -154,6 +155,20 @@ func main() {
 	if *secretMode != "" {
 		runSecretCommand(*secretMode)
 		return
+	}
+
+	// 可选：从配置目录加载离线 IP 归属地库，用于 WAF 拦截记录的来源国家。
+	for _, name := range []string{"GeoLite2-Country.mmdb", "dbip-country-lite.mmdb"} {
+		path := filepath.Join(filepath.Dir(config.GetConfigFilePath()), name)
+		if _, statErr := os.Stat(path); statErr != nil {
+			continue
+		}
+		if err := waf.SetGeoIP(path); err != nil {
+			helper.Warn(helper.LogTypeWebService, "加载 IP 归属地库失败 [%s]: %v", path, err)
+		} else {
+			helper.Info(helper.LogTypeWebService, "已加载 IP 归属地库: %s", path)
+		}
+		break
 	}
 
 	if runtime.GOOS == "android" {

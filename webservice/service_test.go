@@ -507,3 +507,45 @@ func TestUpstreamTLSSkipVerify(t *testing.T) {
 		t.Fatalf("body = %q", got)
 	}
 }
+
+func TestStatusTracksTraffic(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		io.WriteString(w, "hello world")
+	}))
+	defer upstream.Close()
+
+	rule := testRule(t, upstream.URL)
+	manager := NewManager()
+	defer manager.Close()
+	if err := manager.Apply([]Rule{rule}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if res := request(t, rule, rule.Domain, "/"); body(t, res) != "hello world" {
+		t.Fatal("unexpected upstream body")
+	}
+	req, _ := http.NewRequest("POST", "http://"+rule.address()+"/upload", strings.NewReader("payload"))
+	req.Host = rule.Domain
+	client := &http.Client{Timeout: 3 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body(t, res)
+	client.CloseIdleConnections()
+
+	stats := manager.Status()
+	if len(stats) != 1 {
+		t.Fatalf("status = %+v", stats)
+	}
+	if stats[0].Download < int64(len("hello world")) {
+		t.Fatalf("download = %d", stats[0].Download)
+	}
+	if stats[0].Upload < int64(len("payload")) {
+		t.Fatalf("upload = %d", stats[0].Upload)
+	}
+	if stats[0].Connections != 0 {
+		t.Fatalf("connections = %d after requests finished", stats[0].Connections)
+	}
+}

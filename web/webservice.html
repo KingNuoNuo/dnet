@@ -123,6 +123,8 @@
                   <span>监听端口</span>
                   <span>目标地址</span>
                   <span>运行状态</span>
+                  <span>流量</span>
+                  <span>连接</span>
                   <span>备注</span>
                   <span></span>
                 </div>
@@ -461,9 +463,44 @@
           ? `<span class="dnet-conn ok" title="监听入口已就绪">${ICON_OK}<span>监听中</span></span>`
           : '<span class="dnet-conn" title="监听入口尚未建立，请检查端口是否被占用">未监听</span>';
       }
+      function bytes(n) {
+        if (!n) return "0 B";
+        const units = ["B", "KB", "MB", "GB", "TB"];
+        let v = n,
+          i = 0;
+        while (v >= 1024 && i < units.length - 1) {
+          v /= 1024;
+          i++;
+        }
+        return v.toFixed(i ? 1 : 0) + " " + units[i];
+      }
+      function trafficCell(id) {
+        const s = status.find((x) => x.id === id);
+        if (!s) return '<span class="dnet-traffic dim">—</span>';
+        return (
+          '<span class="dnet-traffic" title="自上次启动以来的收发字节数">' +
+          `<b>${bytes(s.upload || 0)}</b> 入 · <b>${bytes(s.download || 0)}</b> 出` +
+          "</span>"
+        );
+      }
+      function liveCell(id) {
+        const s = status.find((x) => x.id === id);
+        if (!s) return '<span class="dnet-live dim">—</span>';
+        const n = s.connections || 0;
+        return (
+          `<span class="dnet-live${n ? "" : " dim"}" title="当前并发请求数">` +
+          `<b>${n}</b> ${n ? "个" : ""}</span>`
+        );
+      }
       function refreshStatus(id) {
-        const cell = rowEl(id)?.querySelector(".dnet-status");
-        if (cell) cell.innerHTML = statusCell(id);
+        const row = rowEl(id);
+        if (!row) return;
+        const state = row.querySelector(".dnet-status");
+        if (state) state.innerHTML = statusCell(id);
+        const traffic = row.querySelector(".dnet-traffic-cell");
+        if (traffic) traffic.innerHTML = trafficCell(id);
+        const live = row.querySelector(".dnet-live-cell");
+        if (live) live.innerHTML = liveCell(id);
       }
 
       function rowNode(rule) {
@@ -482,6 +519,8 @@
               <input data-key="listen_port" type="number" min="1" max="65535" inputmode="numeric" aria-label="监听端口" placeholder="18080" value="${esc(num(rule.listen_port))}">
               <input data-key="target" aria-label="目标地址" placeholder="http://127.0.0.1:3000" value="${esc(rule.target)}">
               <span class="dnet-cell dnet-status">${statusCell(rule.id)}</span>
+              <span class="dnet-cell dnet-traffic-cell">${trafficCell(rule.id)}</span>
+              <span class="dnet-cell dnet-live-cell">${liveCell(rule.id)}</span>
               <input data-key="name" aria-label="备注" placeholder="NAS 面板" value="${esc(rule.name)}">
               <button type="button" class="dnet-rule-del" aria-label="删除该行" title="删除该行">${ICON_CROSS}</button>
             </div>
