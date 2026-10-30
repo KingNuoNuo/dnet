@@ -1,19 +1,46 @@
 package forward
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestFWRuleName(t *testing.T) {
-	cases := map[string]string{
-		"abc-123":       "dnet-abc-123",
-		"R_1 2-3":       "dnet-r-1-2-3",
-		"大小写Mixed_9":    "dnet-mixed-9", // 非 ASCII 逐字符替换成 -，头尾再裁掉
-		"--weird--":     "dnet-weird",
-		"018f3c1e-a7b8": "dnet-018f3c1e-a7b8",
+	cases := []struct {
+		label, id, want string
+	}{
+		{"emby", "9059ddc5", "dnet-emby"},
+		{"R_1 2-3", "id1", "dnet-r-1-2-3"},
+		{"电影服务器", "id2", "dnet-电影服务器"},
+		{"  ", "018f3c1e-a7b8", "dnet-018f3c1e-a7b8"}, // 备注为空时退回 ID
+		{"a'b\"c\\d", "id3", "dnet-abc-d"},            // 引号被丢弃，反斜杠归一成 -
 	}
-	for in, want := range cases {
-		if got := fwRuleName(in); got != want {
-			t.Errorf("fwRuleName(%q)=%q want %q", in, got, want)
+	for _, c := range cases {
+		if got := fwRuleName(c.label, c.id); got != c.want {
+			t.Errorf("fwRuleName(%q, %q)=%q want %q", c.label, c.id, got, c.want)
 		}
+	}
+	long := fwRuleName(strings.Repeat("长", 60), "id")
+	if len([]rune(long)) > len("dnet-")+48 {
+		t.Errorf("fwRuleName should cap length, got %d runes", len([]rune(long)))
+	}
+}
+
+func TestFWWantedUsesRemarkAndDedupes(t *testing.T) {
+	rules := []Rule{
+		{ID: "id-a", Name: "emby", Enabled: true, Network: "tcp6", ListenAddress: "::", ListenPort: 30001},
+		{ID: "id-b", Name: "emby", Enabled: true, Network: "tcp6", ListenAddress: "::", ListenPort: 30002},
+		{ID: "id-c", Name: "", Enabled: true, Network: "udp4", ListenAddress: "0.0.0.0", ListenPort: 5353},
+	}
+	got := fwWanted(rules)
+	if got["dnet-emby"] != "tcp/30001" {
+		t.Fatalf("first rule name wrong: %v", got)
+	}
+	if _, ok := got["dnet-emby-2"]; !ok {
+		t.Fatalf("duplicate remark not suffixed: %v", got)
+	}
+	if got["dnet-id-c"] != "udp/5353" {
+		t.Fatalf("fallback to id failed: %v", got)
 	}
 }
 

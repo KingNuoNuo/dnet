@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/cxbdasheng/dnet/helper"
 )
@@ -45,10 +46,43 @@ var (
 	iptRuleRe = regexp.MustCompile(`(?m)^-A INPUT (.+--comment\s+dnet-[^\s]+.+)$`)
 )
 
-// fwRuleName 生成我们托管的防火墙规则名（uci name 只能字母数字下划线，
-// 但 uci 的 show 输出按引号原样返回，用连字符即可）。
-func fwRuleName(id string) string {
-	return "dnet-" + strings.Trim(ruleNameRe.ReplaceAllString(strings.ToLower(id), "-"), "-")
+// fwRuleName 生成我们托管的防火墙规则名：优先用规则备注，备注为空时退回规则 ID。
+// 只保留字母/数字/汉字，空白与常见分隔符归一成 -，其余字符（引号、反斜杠、
+// 控制字符等）直接丢弃，避免写进 uci / nft / iptables 时破坏引号。
+func fwRuleName(label, id string) string {
+	base := strings.TrimSpace(label)
+	if base == "" {
+		base = id
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range strings.ToLower(base) {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(r)
+			lastDash = false
+		case r == '-' || r == '_' || r == '.' || unicode.IsSpace(r) || strings.ContainsRune("/:|\\", r):
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	name := strings.Trim(b.String(), "-")
+	if name == "" {
+		name = strings.Trim(ruleNameRe.ReplaceAllString(strings.ToLower(id), "-"), "-")
+	}
+	// iptables 的 comment 有 256 字节上限，留足余量。
+	if runes := []rune(name); len(runes) > 48 {
+		name = string(runes[:48])
+	}
+	return "dnet-" + name
+}
+
+// FirewallRuleName 供其它模块（Web 服务等）生成同一套命名的防火墙规则名，
+// 便于在防火墙界面里一眼看出是哪条备注。
+func FirewallRuleName(label, id string) string {
+	return fwRuleName(label, id)
 }
 
 // fwProto 把规则的监听协议归并成防火墙的 proto 字段（fw 不区分 v4/v6）。
@@ -63,6 +97,7 @@ func fwProto(network string) string {
 // 绑定在具体内网 IP 上的规则从 WAN 根本进不来，开了白开。
 func fwWanted(rules []Rule) map[string]string {
 	out := map[string]string{}
+	used := map[string]bool{}
 	for _, r := range rules {
 		if !r.Enabled {
 			continue
@@ -71,7 +106,13 @@ func fwWanted(rules []Rule) map[string]string {
 		if ip == nil || !ip.IsUnspecified() {
 			continue
 		}
-		out[fwRuleName(r.ID)] = fmt.Sprintf("%s/%d", fwProto(r.Network), r.ListenPort)
+		name := fwRuleName(r.Name, r.ID)
+		base := name
+		for i := 2; used[name]; i++ {
+			name = fmt.Sprintf("%s-%d", base, i)
+		}
+		used[name] = true
+		out[name] = fmt.Sprintf("%s/%d", fwProto(r.Network), r.ListenPort)
 	}
 	return out
 }
@@ -232,7 +273,15 @@ func syncFirewallLocked(enabled bool) {
 		wanted = fwWanted(fwLastRules)
 	}
 	for name, spec := range fwExtra {
-		wanted[name] = spec
+		// Web 服务等模块的备注可能与端口转发重名，追加序号避免互相覆盖。
+		final := name
+		for i := 2; ; i++ {
+			if _, exists := wanted[final]; !exists {
+				break
+			}
+			final = fmt.Sprintf("%s-%d", name, i)
+		}
+		wanted[final] = spec
 	}
 	if !fwWarned {
 		fwWarned = true
