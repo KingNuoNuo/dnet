@@ -370,6 +370,6 @@ This repository is a fork of [cxbdasheng/dnet](https://github.com/cxbdasheng/dne
 | 克隆次数 | 122 |
 | 独立克隆者 | 58 |
 
-<sub>数据窗口 2026-10-15 ~ 2026-10-28 · 由 GitHub Actions 每日更新于 2026-10-29 · 来源：GitHub Traffic API（仅统计最近 14 天）</sub>
+<sub>数据窗口 2026-10-15 ~ 2026-10-28（快照，自动更新已停止）· 来源：GitHub Traffic API（仅统计最近 14 天）</sub>
 
 <!-- traffic:end -->
