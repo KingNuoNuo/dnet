@@ -319,9 +319,14 @@ func newSite(r Rule, rules []Rule, engine *waf.Engine) *site {
 
 // prepareWAF 在开监听前为所有策略构建引擎；策略编译失败会让 Apply 整体失败，
 // 不会留下半套监听，也不会把坏配置留到运行期。没有配置策略时跳过，避免不启用
-// WAF 的用户承担 CRS 的初始化开销。
-func (m *Manager) prepareWAF() (map[string]*waf.Engine, error) {
+// WAF 的用户承担 CRS 的初始化开销。服务引用了不存在的策略时仅告警并跳过。
+func (m *Manager) prepareWAF(rules []Rule) (map[string]*waf.Engine, error) {
 	if len(m.wafPolicies) == 0 {
+		for _, r := range rules {
+			if r.WAFPolicyID != "" {
+				helper.Warn(helper.LogTypeWebService, "服务 %s 引用的 WAF 策略 %q 不存在，该服务不启用 WAF", r.Name, r.WAFPolicyID)
+			}
+		}
 		return nil, nil
 	}
 	engines := make(map[string]*waf.Engine, len(m.wafPolicies))
@@ -331,6 +336,13 @@ func (m *Manager) prepareWAF() (map[string]*waf.Engine, error) {
 			return nil, fmt.Errorf("WAF 策略 %q: %w", policy.Name, err)
 		}
 		engines[policy.ID] = engine
+	}
+	warned := map[string]bool{}
+	for _, r := range rules {
+		if r.WAFPolicyID != "" && engines[r.WAFPolicyID] == nil && !warned[r.WAFPolicyID] {
+			warned[r.WAFPolicyID] = true
+			helper.Warn(helper.LogTypeWebService, "服务 %s 引用的 WAF 策略 %q 不存在，该服务不启用 WAF", r.Name, r.WAFPolicyID)
+		}
 	}
 	return engines, nil
 }
@@ -484,7 +496,7 @@ func (m *Manager) Apply(rules []Rule, save func() error) error {
 	if m.closed {
 		return fmt.Errorf("Web 服务已停止")
 	}
-	engines, err := m.prepareWAF()
+	engines, err := m.prepareWAF(rules)
 	if err != nil {
 		return err
 	}

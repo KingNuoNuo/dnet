@@ -91,22 +91,39 @@ type Config struct {
 
 // NormalizeWAF 把 v0.2.2 的全局 WAF 配置迁移为「默认策略」，
 // 并同步各服务引用的策略 ID（旧开关视为引用默认策略）。
+// 注意：这里不清理“引用了不存在策略”的服务——保留引用让用户在保存时报错
+// 并自行修正，避免启动时静默丢掉配置。
 func (conf *Config) NormalizeWAF() {
-	if len(conf.WAFPolicies) == 0 && (len(conf.WAFDisabledGroups) > 0 || conf.WAFCustomDirectives != "") {
-		conf.WAFPolicies = []waf.Policy{{
-			ID:               webservice.DefaultPolicyID,
-			Name:             "默认策略",
-			DisabledGroups:   conf.WAFDisabledGroups,
-			CustomDirectives: conf.WAFCustomDirectives,
-		}}
+	legacy := len(conf.WAFDisabledGroups) > 0 || conf.WAFCustomDirectives != ""
+	legacySwitch := false
+	for _, rule := range conf.WebServiceRules {
+		if rule.WAFPolicyID == "" && rule.WAFEnabled {
+			legacySwitch = true
+			break
+		}
+	}
+	hasDefault := false
+	for _, policy := range conf.WAFPolicies {
+		if policy.ID == webservice.DefaultPolicyID {
+			hasDefault = true
+			break
+		}
+	}
+	if legacy || (legacySwitch && !hasDefault) {
+		if !hasDefault {
+			conf.WAFPolicies = append(conf.WAFPolicies, waf.Policy{
+				ID:               webservice.DefaultPolicyID,
+				Name:             "默认策略",
+				DisabledGroups:   conf.WAFDisabledGroups,
+				CustomDirectives: conf.WAFCustomDirectives,
+			})
+		}
 	}
 	conf.WAFDisabledGroups = nil
 	conf.WAFCustomDirectives = ""
 
-	known := make(map[string]bool, len(conf.WAFPolicies))
 	for i := range conf.WAFPolicies {
 		conf.WAFPolicies[i] = waf.NormalizePolicy(conf.WAFPolicies[i])
-		known[conf.WAFPolicies[i].ID] = true
 	}
 	for i := range conf.WebServiceRules {
 		rule := &conf.WebServiceRules[i]
@@ -114,10 +131,6 @@ func (conf *Config) NormalizeWAF() {
 			rule.WAFPolicyID = webservice.DefaultPolicyID
 		}
 		rule.WAFPolicyID = strings.TrimSpace(rule.WAFPolicyID)
-		if rule.WAFPolicyID != "" && !known[rule.WAFPolicyID] {
-			helper.Warn(helper.LogTypeConfig, "服务 %s 引用的 WAF 策略 %q 不存在，已关闭 WAF", rule.Name, rule.WAFPolicyID)
-			rule.WAFPolicyID = ""
-		}
 		rule.WAFEnabled = rule.WAFPolicyID != ""
 	}
 }

@@ -43,6 +43,7 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 		helper.ReturnError(w, "加载配置失败")
 		return
 	}
+	conf.NormalizeWAF()
 	if r.Method == http.MethodPost {
 		media, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if media != "application/json" {
@@ -59,7 +60,6 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
 			Enabled      bool              `json:"enabled"`
 			AutoFirewall bool              `json:"auto_firewall"`
-			WAFPolicies  []waf.Policy      `json:"waf_policies"`
 			Rules        []webservice.Rule `json:"rules"`
 		}
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
@@ -72,18 +72,13 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 			helper.ReturnError(w, "请求只能包含一个 JSON 对象")
 			return
 		}
-		policies, err := normalizePolicies(payload.WAFPolicies)
-		if err != nil {
-			helper.ReturnError(w, err.Error())
-			return
-		}
 		rules, err := webservice.Prepare(payload.Rules, conf.WebServiceRules)
 		if err != nil {
 			helper.ReturnError(w, err.Error())
 			return
 		}
-		known := make(map[string]bool, len(policies))
-		for _, policy := range policies {
+		known := make(map[string]bool, len(conf.WAFPolicies))
+		for _, policy := range conf.WAFPolicies {
 			known[policy.ID] = true
 		}
 		for _, rule := range rules {
@@ -94,17 +89,11 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		conf.WebServiceEnabled = payload.Enabled
 		conf.WebAutoFirewall = payload.AutoFirewall
-		conf.WAFPolicies = policies
-		conf.WAFDisabledGroups = nil
-		conf.WAFCustomDirectives = ""
 		conf.WebServiceRules = rules
 		active := rules
 		if !payload.Enabled {
 			active = nil
 		}
-		// 策略选择在应用监听前生效；自定义规则写错会在 Apply 阶段报错，
-		// 不会留下半套监听。
-		s.WebServices.SetWAFPolicies(conf.WAFPolicies)
 		// 防火墙放行：与端口转发共用 forward.SyncFirewall 的对账机制，
 		// 这里只维护 Web 服务自己的期望端口（禁用或关闭开关时清空）。
 		forward.SetExtraFirewallPorts(webservice.FirewallPorts(conf.WebAutoFirewall && payload.Enabled, active))
@@ -113,7 +102,7 @@ func (s *Server) WebServiceAPI(w http.ResponseWriter, r *http.Request) {
 			helper.ReturnError(w, err.Error())
 			return
 		}
-		helper.Info(helper.LogTypeWebService, "配置保存并应用成功 [开启=%t, 配置数=%d, WAF=%d, 策略=%d]", payload.Enabled, len(rules), wafCount(rules), len(policies))
+		helper.Info(helper.LogTypeWebService, "配置保存并应用成功 [开启=%t, 配置数=%d, WAF=%d]", payload.Enabled, len(rules), wafCount(rules))
 	}
 	groups, err := waf.Catalog()
 	if err != nil {

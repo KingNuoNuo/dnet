@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>D-NET Coraza WAF</title>
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/static/css/layui.css" />
+    <link rel="stylesheet" href="/static/css/common.css" />
+    <script src="/static/layui.js"></script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0 0 25px;
+        overflow-x: hidden;
+        min-height: 100vh;
+      }
+      html {
+        overflow-x: hidden;
+      }
+      #dirty {
+        color: #c98b1d;
+      }
+      #dirty:empty {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layui-container">
+      <p class="page-desc">
+        Coraza WAF —— 内置 OWASP 核心规则集（与 Lucky 同源）。在这里维护多套策略，
+        每个策略选择启用的规则组并可追加自定义规则；Web 服务按行选择使用哪套策略。
+      </p>
+
+      <form class="layui-form" lay-filter="waf-form" onsubmit="return false">
+        <div class="layui-card">
+          <div class="layui-card-body">
+            <div class="dnet-group">
+              <span class="t">策略</span>
+            </div>
+            <div class="layui-form-item">
+              <label class="layui-form-label" for="policy">当前策略：</label>
+              <div class="layui-input-inline" style="width: 220px">
+                <select id="policy" lay-ignore></select>
+              </div>
+              <div class="layui-input-inline" style="width: 220px">
+                <input id="policy-name" class="layui-input" maxlength="32" placeholder="策略名称">
+              </div>
+              <div class="layui-input-inline" style="width: auto">
+                <button type="button" class="layui-btn layui-btn-primary layui-btn-sm" id="policy-add">新增策略</button>
+                <button type="button" class="layui-btn layui-btn-primary layui-btn-sm" id="policy-del">删除策略</button>
+              </div>
+            </div>
+
+            <div class="dnet-group">
+              <span class="t">规则组</span>
+            </div>
+            <div class="layui-form-item">
+              <label class="layui-form-label">内置规则组：</label>
+              <div class="layui-input-block" id="groups"></div>
+            </div>
+            <div class="layui-form-mid layui-word-aux" style="margin: 0 0 12px 110px">
+              901/949 等框架组始终启用，其余按需勾选；单个站点误报时优先关掉对应规则组。
+              默认只放行 GET/HEAD/POST/OPTIONS（911 组），WebDAV/PUT/DELETE 场景请取消勾选 911。
+              低配路由器初始化 CRS 需要数秒与额外内存。
+            </div>
+
+            <div class="dnet-group">
+              <span class="t">自定义规则</span>
+            </div>
+            <div class="layui-form-item">
+              <label class="layui-form-label" for="custom">SecLang：</label>
+              <div class="layui-input-block">
+                <textarea
+                  id="custom"
+                  class="layui-textarea"
+                  spellcheck="false"
+                  style="min-height: 140px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px"
+                  placeholder="SecRule ARGS:probe &quot;@rx test&quot; &quot;id:199999,phase:2,deny,log,msg:'自定义规则'&quot;"
+                ></textarea>
+              </div>
+            </div>
+            <div class="layui-form-mid layui-word-aux" style="margin: 0 0 12px 110px">
+              追加在内置 CRS 之后。CRS 的 block 是占位动作（默认只记录），自定义阻断请写 deny。
+            </div>
+          </div>
+
+          <div class="dnet-card-foot">
+            <span class="note">改动保存后立即生效<span id="dirty"></span></span>
+            <button type="button" class="layui-btn layui-btn-primary reset">复位</button>
+            <button type="submit" class="layui-btn save" lay-submit lay-filter="save">保存并应用</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </body>
+
+  <script>
+    layui.use(["form", "layer"], function () {
+      const form = layui.form,
+        layer = layui.layer;
+      const $ = (id) => document.getElementById(id);
+
+      let groups = [],
+        policies = [],
+        index = 0,
+        saved = null,
+        dirty = false,
+        busy = false,
+        loaded = false;
+
+      const esc = (value) =>
+        String(value ?? "").replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      const clone = (value) => JSON.parse(JSON.stringify(value));
+      const current = () => policies[index] || null;
+
+      function markDirty() {
+        dirty = true;
+        $("dirty").textContent = "（有未提交的更改）";
+      }
+      function error(e) {
+        const text = document.createElement("span");
+        text.textContent = e.message || String(e);
+        layer.msg(text.outerHTML, { icon: 2, time: 3000 });
+      }
+      function confirmBox(text, title) {
+        return new Promise((resolve) => {
+          layer.confirm(
+            text,
+            { title },
+            (i) => {
+              layer.close(i);
+              resolve(true);
+            },
+            () => resolve(false),
+          );
+        });
+      }
+      async function api(body) {
+        const response = await fetch("/api/waf", {
+          method: body ? "POST" : "GET",
+          headers: body ? { "Content-Type": "application/json" } : {},
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (!response.ok) throw Error("请求失败：" + response.status);
+        let result;
+        try {
+          result = await response.json();
+        } catch {
+          throw Error("请检查登录状态并刷新页面");
+        }
+        if (!result.status) throw Error(result.msg);
+        return result.data;
+      }
+
+      function renderAll(resetFields) {
+        const select = $("policy");
+        select.innerHTML = policies
+          .map(
+            (p, i) =>
+              `<option value="${esc(p.id)}"${i === index ? " selected" : ""}>${esc(p.name)}</option>`,
+          )
+          .join("");
+        select.value = (current() || {}).id || "";
+
+        const policy = current();
+        $("groups").innerHTML = groups
+          .map(
+            (g) =>
+              `<input type="checkbox" lay-skin="primary" lay-filter="waf-group" value="${g.id}"${
+                !policy || !(policy.disabled || []).includes(g.id) ? " checked" : ""
+              }${g.mandatory ? ' disabled data-mandatory="1"' : ""} title="${esc(`${g.id} ${g.name}`)}">`,
+          )
+          .join("");
+        form.render("checkbox");
+
+        if (resetFields) {
+          $("policy-name").value = policy ? policy.name : "";
+          $("custom").value = policy ? policy.custom || "" : "";
+        }
+        $("dirty").textContent = dirty ? "（有未提交的更改）" : "";
+        controls(busy || !loaded);
+      }
+      function controls(disabled) {
+        for (const node of document.querySelectorAll(
+          "button,input,select,textarea",
+        ))
+          node.disabled = disabled || node.dataset.mandatory === "1";
+        form.render("checkbox");
+      }
+
+      function newPolicy() {
+        const bytes = new Uint8Array(8);
+        crypto.getRandomValues(bytes);
+        const id =
+          "p" + Array.from(bytes, (x) => x.toString(16).padStart(2, "0")).join("");
+        policies.push({
+          id,
+          name: "策略 " + (policies.length + 1),
+          disabled: [],
+          custom: "",
+        });
+        index = policies.length - 1;
+        markDirty();
+        renderAll(true);
+      }
+
+      async function deletePolicy() {
+        if (busy || !loaded) return;
+        const policy = current();
+        if (!policy) return;
+        if (policies.length <= 1) {
+          layer.msg("至少保留一个策略；不需要 WAF 时在 Web 服务行里选择「不启用」");
+          return;
+        }
+        const confirmed = await confirmBox(
+          `删除「${policy.name}」？使用它的 Web 服务会改为「不启用」。`,
+          "删除策略",
+        );
+        if (!confirmed) return;
+        policies.splice(index, 1);
+        index = Math.min(index, policies.length - 1);
+        markDirty();
+        renderAll(true);
+      }
+
+      function restore(data) {
+        groups = data.groups || [];
+        policies = (data.policies || []).map((p) => ({
+          id: p.id,
+          name: p.name,
+          disabled: (p.disabled || []).slice(),
+          custom: p.custom || "",
+        }));
+        if (!policies.length) {
+          policies.push({ id: "default", name: "默认策略", disabled: [], custom: "" });
+        }
+        index = Math.min(index, policies.length - 1);
+        dirty = false;
+        renderAll(true);
+      }
+
+      async function submit() {
+        if (busy || !loaded) return;
+        for (const policy of policies) {
+          if (!String(policy.name || "").trim()) {
+            layer.msg("策略名称不能为空", { icon: 2 });
+            return;
+          }
+        }
+        busy = true;
+        controls(true);
+        try {
+          const data = await api({
+            policies: policies.map((p) => ({
+              id: p.id,
+              name: p.name.trim(),
+              disabled: (p.disabled || []).slice().sort((a, b) => a - b),
+              custom: p.custom || "",
+            })),
+          });
+          if (data) {
+            saved = clone(data);
+            restore(data);
+          }
+          dirty = false;
+          layer.msg("WAF 策略已保存并应用", { icon: 1, time: 1200 });
+        } catch (e) {
+          error(e);
+        } finally {
+          busy = false;
+          controls(false);
+          $("dirty").textContent = dirty ? "（有未提交的更改）" : "";
+        }
+      }
+
+      async function reset() {
+        if (!saved || busy) return;
+        if (!dirty) {
+          restore(saved);
+          return;
+        }
+        const confirmed = await confirmBox(
+          "放弃所有未提交的更改，恢复到上次保存的状态？",
+          "复位",
+        );
+        if (confirmed) restore(saved);
+      }
+
+      $("policy").addEventListener("change", (e) => {
+        index = policies.findIndex((p) => p.id === e.target.value);
+        if (index < 0) index = 0;
+        renderAll(true);
+      });
+      $("policy-name").addEventListener("input", (e) => {
+        const policy = current();
+        if (!policy) return;
+        policy.name = e.target.value;
+        markDirty();
+        const option = document.querySelector(`#policy option[value="${policy.id}"]`);
+        if (option) option.textContent = policy.name || "未命名策略";
+      });
+      $("custom").addEventListener("input", (e) => {
+        const policy = current();
+        if (!policy) return;
+        policy.custom = e.target.value;
+        markDirty();
+      });
+      form.on("checkbox(waf-group)", (data) => {
+        const policy = current();
+        const id = Number(data.elem.value);
+        if (!policy || !id) return;
+        policy.disabled = policy.disabled || [];
+        const at = policy.disabled.indexOf(id);
+        if (data.elem.checked && at >= 0) policy.disabled.splice(at, 1);
+        if (!data.elem.checked && at < 0) policy.disabled.push(id);
+        markDirty();
+      });      $("policy-add").onclick = newPolicy;
+      $("policy-del").onclick = deletePolicy;
+      for (const button of document.querySelectorAll(".reset"))
+        button.onclick = reset;
+      form.on("submit(save)", function () {
+        submit();
+        return false;
+      });
+      window.addEventListener("beforeunload", (e) => {
+        if (dirty) {
+          e.preventDefault();
+          e.returnValue = "";
+        }
+      });
+
+      controls(true);
+      api()
+        .then((data) => {
+          saved = clone(data);
+          loaded = true;
+          restore(data);
+        })
+        .catch(error);
+    });
+  </script>
+</html>

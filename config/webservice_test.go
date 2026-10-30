@@ -110,7 +110,8 @@ func TestNormalizeWAFMigratesLegacyGlobalConfig(t *testing.T) {
 	if conf.WebServiceRules[0].WAFPolicyID != webservice.DefaultPolicyID || !conf.WebServiceRules[0].WAFEnabled {
 		t.Fatal("legacy switch not mapped to default policy")
 	}
-	if conf.WebServiceRules[1].WAFPolicyID != "" || conf.WebServiceRules[1].WAFEnabled {
-		t.Fatal("dangling policy reference not cleared")
+	// 不存在的策略引用不再在启动时被静默清除，保留原值以便用户修正。
+	if conf.WebServiceRules[1].WAFPolicyID != "missing" || !conf.WebServiceRules[1].WAFEnabled {
+		t.Fatal("dangling policy reference should be preserved for user to fix")
 	}
 }
