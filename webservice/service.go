@@ -277,7 +277,7 @@ func (r *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func newSite(r Rule, rules []Rule, engine *waf.Engine, st *ruleStats, security SecurityOptions) *site {
+func newSite(r Rule, rules []Rule, engine *waf.Engine, policy waf.Policy, st *ruleStats, security SecurityOptions) *site {
 	target, _ := url.Parse(r.Target)
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
@@ -395,7 +395,7 @@ func newSite(r Rule, rules []Rule, engine *waf.Engine, st *ruleStats, security S
 		s.handler = engine.Handler(r.Name, s.handler)
 	}
 	// 封禁/限速/地区限制放在最外层：被封禁的来源不必再走 WAF 检查。
-	s.handler = guardHandler(r, s.handler)
+	s.handler = guardHandler(r, policy, s.handler)
 	return s
 }
 
@@ -439,6 +439,20 @@ func (m *Manager) SetWAFPolicies(policies []waf.Policy) {
 		out = append(out, waf.NormalizePolicy(policy))
 	}
 	m.wafPolicies = out
+}
+
+// wafPolicyFor 按 ID 取策略；取不到时返回零值，等价于该策略没有额外限制。
+// 调用方必须已持有 m.mu（Apply 里在用）。
+func (m *Manager) wafPolicyFor(id string) waf.Policy {
+	if id == "" {
+		return waf.Policy{}
+	}
+	for _, policy := range m.wafPolicies {
+		if policy.ID == id {
+			return policy
+		}
+	}
+	return waf.Policy{}
 }
 
 type group struct {
@@ -665,7 +679,7 @@ func (m *Manager) Apply(rules []Rule, save func() error) error {
 		if routes[key] == nil {
 			routes[key] = map[string]*site{}
 		}
-		routes[key][domain(r.Domain)] = newSite(r, rules, engines[r.WAFPolicyID], m.statsFor(r.ID), m.security)
+		routes[key][domain(r.Domain)] = newSite(r, rules, engines[r.WAFPolicyID], m.wafPolicyFor(r.WAFPolicyID), m.statsFor(r.ID), m.security)
 		if next[key] != nil {
 			continue
 		}
@@ -856,10 +870,25 @@ func ValidateCountryPolicy(value string) error {
 	return nil
 }
 
+// effectiveCountryPolicy 决定一条服务最终使用的地区限制：服务行上的
+// country_policy 优先，其次看所选 WAF 策略上的「仅允许中国大陆」开关。
+func effectiveCountryPolicy(rule Rule, policy waf.Policy) string {
+	if value := strings.TrimSpace(rule.CountryPolicy); value != "" {
+		return value
+	}
+	if policy.AllowOnlyCN {
+		return "allow:CN"
+	}
+	return ""
+}
+
+// geoWarnOnce 保证「开了地区限制但没放国家库」只告警一次，避免刷日志。
+var geoWarnOnce sync.Once
+
 // guardHandler applies temporary bans, per-IP rate limiting and country rules
 // before the request reaches WAF or the upstream service.
-func guardHandler(rule Rule, next http.Handler) http.Handler {
-	policy := parseCountryPolicy(rule.CountryPolicy)
+func guardHandler(rule Rule, wafPolicy waf.Policy, next http.Handler) http.Handler {
+	region := parseCountryPolicy(effectiveCountryPolicy(rule, wafPolicy))
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ip := waf.ClientIP(req)
 		if ok, retry := waf.GuardAllow(ip); !ok {
@@ -867,12 +896,22 @@ func guardHandler(rule Rule, next http.Handler) http.Handler {
 			http.Error(w, "too many requests or temporarily banned", http.StatusTooManyRequests)
 			return
 		}
-		if policy != nil {
+		// 内网 / 环回 / CGNAT 没有归属地，地区限制对它们不生效，
+		// 否则开了「仅允许中国 IP」连局域网访问都会被挡住。
+		if region != nil && !waf.IsLocalIP(ip) {
 			code, _ := waf.CountryOf(ip)
 			if code == "" {
+				// 没放 GeoLite2 / DB-IP 库时查不到归属地，此时放行比全站 403 安全。
+				if waf.GeoIPPath() == "" {
+					geoWarnOnce.Do(func() {
+						helper.Warn(helper.LogTypeWebService, "地区限制已启用但未加载 IP 归属地库，请求将全部放行；请把 GeoLite2-Country.mmdb 或 dbip-country-lite.mmdb 放到配置目录后重启")
+					})
+					next.ServeHTTP(w, req)
+					return
+				}
 				code = "??"
 			}
-			if !policy.allows(code) {
+			if !region.allows(code) {
 				http.Error(w, "access denied for this region", http.StatusForbidden)
 				return
 			}

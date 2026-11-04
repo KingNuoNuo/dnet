@@ -109,6 +109,22 @@ func ipInNets(ip net.IP, nets []*net.IPNet) bool {
 	return false
 }
 
+// cgnat 是 RFC 6598 的运营商级 NAT 网段，家宽经运营商 NAT 后来源会落在这里。
+var cgnat = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+
+// IsLocalIP 判断来源是否属于环回 / 私有网段 / 链路本地 / CGNAT。
+// 这类地址没有地理位置可言，地区限制对它们一律放行，免得把局域网访问挡在外面。
+func IsLocalIP(value string) bool {
+	ip := net.ParseIP(normalizeIP(value))
+	if ip == nil {
+		return false
+	}
+	if v4 := ip.To4(); v4 != nil && cgnat.Contains(v4) {
+		return true
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
+}
+
 // GuardAllow 判断请求是否放行：先看封禁，再做令牌桶限速。
 // 返回 false 时第二个值是需要等待的秒数（用于 Retry-After）。
 func GuardAllow(value string) (bool, int) {

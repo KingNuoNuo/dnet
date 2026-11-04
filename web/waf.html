@@ -24,6 +24,23 @@
       #dirty:empty {
         display: none;
       }
+      .geoip-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .geoip-row .note {
+        margin: 0;
+        word-break: break-all;
+      }
+      #geoip-state.ready {
+        color: #1a7f37;
+      }
+      #geoip-state.missing {
+        color: #c0392b;
+      }
     </style>
   </head>
   <body>
@@ -67,6 +84,37 @@
               <div class="layui-input-inline" style="width: auto">
                 <button type="button" class="layui-btn layui-btn-primary layui-btn-sm" id="policy-add">新增策略</button>
                 <button type="button" class="layui-btn layui-btn-primary layui-btn-sm" id="policy-del">删除策略</button>
+              </div>
+            </div>
+
+            <div class="layui-form-item">
+              <label class="layui-form-label">地区限制：</label>
+              <div class="layui-input-block">
+                <input
+                  type="checkbox"
+                  id="policy-allow-cn"
+                  lay-skin="switch"
+                  lay-text="开启|关闭"
+                  lay-filter="policy-allow-cn"
+                  title="只允许中国大陆 IP 访问"
+                />
+                <div class="note" style="margin-top: 6px">
+                  开启后，引用本策略的 Web 服务只放行中国大陆来源，其余地区返回 403；内网 / 环回 / CGNAT 始终放行。
+                  需要先把 <code>GeoLite2-Country.mmdb</code> 或 <code>dbip-country-lite.mmdb</code> 放到配置目录（与
+                  <code>master.key</code> 同级），未放库时无法判断归属地，开关不会拦截任何请求。
+                  要额外放行港澳或精确控制，在 Web 服务行的「国家/地区限制」里填 <code>allow:CN,HK</code>，该设置优先于本开关。
+                </div>
+                <div class="geoip-row">
+                  <span id="geoip-state" class="note">正在读取归属地库状态…</span>
+                  <button
+                    type="button"
+                    class="layui-btn layui-btn-primary layui-btn-sm"
+                    id="geoip-update"
+                    title="从 download.db-ip.com 下载最新的 DB-IP Country Lite 库并立即生效"
+                  >
+                    下载 / 更新库
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -310,6 +358,29 @@
         return result.data;
       }
 
+      const GEOIP_CREDIT = "IP Geolocation by DB-IP";
+      let lastGeoIP = {};
+      function renderGeoIP(state) {
+        if (state) lastGeoIP = state;
+        state = lastGeoIP || {};
+        const node = $("geoip-state");
+        if (!node) return;
+        if (state.ready) {
+          const built = state.built_at
+            ? new Date(state.built_at).toLocaleDateString("sv-SE")
+            : "日期未知";
+          const size = state.bytes
+            ? " · " + (state.bytes / 1048576).toFixed(1) + " MB"
+            : "";
+          node.className = "note ready";
+          node.textContent = `已加载：${state.database || "country 库"} · 构建于 ${built}${size}（${GEOIP_CREDIT}）`;
+        } else {
+          node.className = "note missing";
+          node.textContent =
+            "未加载：开启地区限制前请先下载，否则开关不会拦截任何请求。";
+        }
+      }
+
       function renderAll(resetFields) {
         const select = $("policy");
         select.innerHTML = policies
@@ -340,6 +411,7 @@
         $("policy-excluded").value = policy
           ? (policy.excluded || []).join(", ")
           : "";
+        $("policy-allow-cn").checked = !!(policy && policy.allow_cn);
         $("dirty").textContent = dirty ? "（有未提交的更改）" : "";
         controls(busy || !loaded);
       }
@@ -364,6 +436,7 @@
           paranoia: 1,
           threshold: 5,
           excluded: [],
+          allow_cn: false,
         });
         index = policies.length - 1;
         markDirty();
@@ -465,7 +538,7 @@
 
         $("waf-geoip").textContent = lastStats.geo_ready
           ? `IP 归属地库：${lastStats.geo_path || ""}`
-          : "未加载 IP 归属地库：把 GeoLite2-Country.mmdb 或 dbip-country-lite.mmdb 放到配置目录（与 master.key 同目录）后重启 dnet，即可显示国家 / 地区。";
+          : "未加载 IP 归属地库：到「策略配置」页的地区限制旁点「下载 / 更新库」即可启用；也可以手动放 GeoLite2-Country.mmdb 或 dbip-country-lite.mmdb 到配置目录（与 master.key 同目录）后重启 dnet。";
         renderRecent();
       }
       function renderExcluded(ex) {
@@ -536,13 +609,21 @@
           paranoia: p.paranoia || 1,
           threshold: p.threshold || 5,
           excluded: (p.excluded_rules || []).slice(),
+          allow_cn: !!p.allow_cn,
         }));
         if (!policies.length) {
-          policies.push({ id: "default", name: "默认策略", disabled: [], custom: "" });
+          policies.push({
+            id: "default",
+            name: "默认策略",
+            disabled: [],
+            custom: "",
+            allow_cn: false,
+          });
         }
         index = Math.min(index, policies.length - 1);
         dirty = false;
         renderAll(true);
+        renderGeoIP(data.geoip);
         renderStats(data.stats || {});
         renderExcluded(data.excluded || {});
         renderGuard(data);
@@ -568,6 +649,7 @@
               paranoia: p.paranoia || 1,
               threshold: p.threshold || 5,
               excluded_rules: (p.excluded || []).slice().sort((a, b) => a - b),
+              allow_cn: !!p.allow_cn,
             })),
           });
           if (data) {
@@ -647,7 +729,39 @@
         if (data.elem.checked && at >= 0) policy.disabled.splice(at, 1);
         if (!data.elem.checked && at < 0) policy.disabled.push(id);
         markDirty();
-      });      $("policy-add").onclick = newPolicy;
+      });
+      form.on("switch(policy-allow-cn)", (data) => {
+        const policy = current();
+        if (!policy) return;
+        policy.allow_cn = !!data.elem.checked;
+        markDirty();
+        $("dirty").textContent = dirty ? "（有未提交的更改）" : "";
+      });
+      $("geoip-update").onclick = async () => {
+        if (busy || !loaded) return;
+        const confirmed = await confirmBox(
+          "从 download.db-ip.com 下载最新的 DB-IP Country Lite 库（压缩包约 4 MB，解压后约 9 MB），写入配置目录并立即生效？",
+          "更新 IP 归属地库",
+        );
+        if (!confirmed) return;
+        busy = true;
+        controls(true);
+        const node = $("geoip-state");
+        node.className = "note";
+        node.textContent = "正在下载并解压，通常 10-60 秒，请勿关闭页面…";
+        try {
+          const data = await api({ action: "geoip_update" });
+          renderGeoIP(data && data.geoip);
+          layer.msg("归属地库已更新并生效", { icon: 1, time: 1500 });
+        } catch (e) {
+          error(e);
+          renderGeoIP();
+        } finally {
+          busy = false;
+          controls(false);
+        }
+      };
+      $("policy-add").onclick = newPolicy;
       $("policy-del").onclick = deletePolicy;
       for (const button of document.querySelectorAll(".reset"))
         button.onclick = reset;

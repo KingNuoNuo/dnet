@@ -291,6 +291,9 @@ type Policy struct {
 	Threshold int `json:"threshold,omitempty" yaml:"threshold,omitempty"`
 	// ExcludedRules 是按规则 ID 关闭的检测规则（比整组关闭更精细）。
 	ExcludedRules []int `json:"excluded_rules,omitempty" yaml:"excluded_rules,omitempty"`
+	// AllowOnlyCN 只放行中国大陆（CN）来源的请求，其他地区直接 403。
+	// 仅对引用本策略的 Web 服务生效；服务行上的 country_policy 优先。
+	AllowOnlyCN bool `json:"allow_cn,omitempty" yaml:"allow_cn,omitempty"`
 }
 
 var (

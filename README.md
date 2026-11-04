@@ -59,8 +59,8 @@
 - **证书自动上传到阿里云 ESA**：ACME 证书签发/续期成功后，自动把证书与私钥通过 `SetCertificate` 上传为 ESA 站点证书（`Type=upload`），同名证书按 ID 更新、不会重复创建；也可在证书页手动点「上传 ESA」。本身就是站点级证书，一张 `*.example.com` 通配符即可覆盖站点下所有子域名。凭据复用「系统设置 → 服务商凭据」里的阿里云 AccessKey（需要 `esa:ListSites` / `esa:ListCertificates` / `esa:SetCertificate` 权限）
 - **端口转发一键转 Web 服务**：DPF 行内「转为 Web 服务」可把一条 TCP 转发改成同端口、同备注的 DWS 反向代理，选择证书与 WAF 策略后立即生效；原转发规则保留但停用，方便回滚。UDP 转发不支持转换（WAF 只检查 HTTP 请求）
 - **Web 服务流量统计**：每条 Web 服务规则显示自启动以来的累计上行/下行字节数与当前并发请求数，与端口转发页一致
-- **WAF 拦截统计**：按 Web 服务、来源 IP、国家/地区聚合拦截次数，保留最近 200 条拦截明细（时间、来源 IP、方法/路径、命中规则）；把 GeoLite2 / DB-IP 的 country mmdb 放到配置目录（`GeoLite2-Country.mmdb` 或 `dbip-country-lite.mmdb`）即可显示国家，未放库时国家列显示为未知
-- **WAF 防护增强**：同一来源窗口内多次命中可自动临时封禁（内存态 + 手动解封），支持每 IP 令牌桶限速、白名单、封禁 Webhook 告警；DWS 每行可按 `allow:CN` / `deny:RU,KP` 限制来源地区；WAF 策略可选 CRS 偏执等级、异常分阈值、按规则 ID 例外；全局可开 HSTS、隐藏 `Server` / `X-Powered-By`、设置 TLS 最低版本
+- **WAF 拦截统计**：按 Web 服务、来源 IP、国家/地区聚合拦截次数，保留最近 200 条拦截明细（时间、来源 IP、方法/路径、命中规则）；国家归属地库可在 WAF 页「下载 / 更新库」一键拉取 DB-IP 免费 country 库（免注册，压缩包约 4 MB，解压后约 9 MB，下载即生效、无需重启；IP Geolocation by DB-IP），也可手动把 `GeoLite2-Country.mmdb` 或 `dbip-country-lite.mmdb` 放到配置目录；未放库时国家列显示为未知
+- **WAF 防护增强**：同一来源窗口内多次命中可自动临时封禁（内存态 + 手动解封），支持每 IP 令牌桶限速、白名单、封禁 Webhook 告警；WAF 策略里「仅允许中国大陆」开关一键只放行中国大陆来源（引用该策略的 DWS 服务生效，需要先加载 country 归属地库），DWS 每行也可按 `allow:CN` / `deny:RU,KP` 精确控制且优先于策略开关，内网 / 环回 / CGNAT 来源始终放行；WAF 策略可选 CRS 偏执等级、异常分阈值、按规则 ID 例外；全局可开 HSTS、隐藏 `Server` / `X-Powered-By`、设置 TLS 最低版本
 - **证书申请进度**：ACME 申请各阶段（注册账户、写 DNS 记录、等待 CA 验证等）实时上报，悬浮状态格即可查看当前步骤
 - **配置密钥加密**：云厂商 AccessKey/Secret、ACME 账号密钥、证书私钥、Webhook 地址可选用主密钥加密后落盘（AES-256-GCM，`enc:v1:` 前缀），明文配置可一键迁移；缺主密钥且配置已是密文时拒绝启动，不会把密文当明文用
 

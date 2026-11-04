@@ -45,6 +45,28 @@ func TestGuardAutoBan(t *testing.T) {
 	}
 }
 
+func TestIsLocalIP(t *testing.T) {
+	local := []string{
+		"127.0.0.1", "::1", "10.1.2.3", "172.16.5.4", "192.168.1.10",
+		"169.254.10.1", "fe80::1", "100.64.3.7", "100.127.255.254", "0.0.0.0",
+	}
+	for _, value := range local {
+		if !IsLocalIP(value) {
+			t.Fatalf("%s should be local", value)
+		}
+	}
+	remote := []string{"8.8.8.8", "1.1.1.1", "203.0.113.50", "100.63.255.255", "100.128.0.1", "2400:3200::1"}
+	for _, value := range remote {
+		if IsLocalIP(value) {
+			t.Fatalf("%s should be public", value)
+		}
+	}
+	// 带端口 / 方括号 IPv6 也要能识别。
+	if !IsLocalIP("192.168.1.10:8080") || !IsLocalIP("[::1]:80") {
+		t.Fatal("address with port should still be recognised")
+	}
+}
+
 func TestGuardWhitelistAndRate(t *testing.T) {
 	resetGuardForTest()
 	t.Cleanup(resetGuardForTest)

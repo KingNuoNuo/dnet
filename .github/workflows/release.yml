@@ -132,6 +132,7 @@ jobs:
             echo "- 防火墙自动放行：四级检测 fw4 → fw3 → nft → iptables，自适应 OpenWrt 与通用 Linux；只动 dnet- 前缀规则，端口转发与 Web 服务共用"
             echo "- SSL 证书申请进度实时上报，悬浮状态格查看当前步骤"
             echo "- Coraza WAF：独立「WAF」页面维护多套策略（CRS 规则组 + 自定义 SecLang），Web 服务按行选择策略；命中返回 403 并写 DWS 日志"
+            echo "- WAF 地区限制：策略里「仅允许中国大陆」开关一键只放行 CN 来源（服务行 \`country_policy\` 优先，内网 / 回环 / CGNAT 始终放行）；IP 归属地库可在页面一键下载 DB-IP Country Lite（免注册、每月更新、解压校验后热加载，显示库类型与构建日期）"
             echo "- 自更新指向本仓库：\`dnet -u\` 只查询 KingNuoNuo/dnet 的 Releases，发布同时提供 checksums.txt 与 x86_64 / i386 / armv5-7 命名的资产"
             echo
             echo "### 命令行"

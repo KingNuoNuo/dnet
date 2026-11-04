@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -85,6 +86,9 @@ var blockStats = struct {
 	recent     []BlockEvent
 	geo        *geoip2.Reader
 	geoPath    string
+	geoDB      string
+	geoBuiltAt time.Time
+	geoBytes   int64
 	manual     []string
 	manualNets []*net.IPNet
 	localNets  []*net.IPNet
@@ -101,15 +105,60 @@ func SetGeoIP(path string) error {
 	if err != nil {
 		return err
 	}
+	meta := db.Metadata()
+	builtAt := time.Time{}
+	if meta.BuildEpoch > 0 {
+		builtAt = time.Unix(int64(meta.BuildEpoch), 0).UTC()
+	}
 	blockStats.Lock()
 	old := blockStats.geo
 	blockStats.geo = db
 	blockStats.geoPath = path
+	blockStats.geoDB = meta.DatabaseType
+	blockStats.geoBuiltAt = builtAt
+	blockStats.geoBytes = fileSize(path)
 	blockStats.Unlock()
 	if old != nil {
 		_ = old.Close()
 	}
 	return nil
+}
+
+// CloseGeoIP 关闭当前归属地库。替换 mmdb 文件前调用，避免 Windows 下文件被占用。
+func CloseGeoIP() {
+	blockStats.Lock()
+	old := blockStats.geo
+	blockStats.geo = nil
+	blockStats.geoPath = ""
+	blockStats.geoDB = ""
+	blockStats.geoBuiltAt = time.Time{}
+	blockStats.geoBytes = 0
+	blockStats.Unlock()
+	if old != nil {
+		_ = old.Close()
+	}
+}
+
+// GeoIPStatus 描述当前归属地库的加载情况，供页面展示与「一键下载」后的反馈。
+type GeoIPStatus struct {
+	Ready    bool      `json:"ready"`
+	Path     string    `json:"path,omitempty"`
+	Database string    `json:"database,omitempty"`
+	BuiltAt  time.Time `json:"built_at,omitempty"`
+	Bytes    int64     `json:"bytes,omitempty"`
+}
+
+// GeoIPState 返回当前归属地库状态。
+func GeoIPState() GeoIPStatus {
+	blockStats.Lock()
+	defer blockStats.Unlock()
+	return GeoIPStatus{
+		Ready:    blockStats.geo != nil,
+		Path:     blockStats.geoPath,
+		Database: blockStats.geoDB,
+		BuiltAt:  blockStats.geoBuiltAt,
+		Bytes:    blockStats.geoBytes,
+	}
 }
 
 // GeoIPPath 返回当前加载的国家库路径。
@@ -356,6 +405,14 @@ func Record(ev BlockEvent) bool {
 		blockStats.recent = blockStats.recent[len(blockStats.recent)-maxRecentEvents:]
 	}
 	return true
+}
+
+// fileSize 返回文件字节数，取不到时返回 0（仅用于展示）。
+func fileSize(path string) int64 {
+	if info, err := os.Stat(path); err == nil {
+		return info.Size()
+	}
+	return 0
 }
 
 func normalizeIP(value string) string {

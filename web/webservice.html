@@ -540,6 +540,7 @@
               <div class="f">
                 <label>国家/地区限制</label>
                 <input data-key="country_policy" aria-label="国家/地区限制" placeholder="allow:CN 或 deny:RU,KP" value="${esc(rule.country_policy)}">
+                <span class="tip-line">留空则跟随所选 WAF 策略的「仅允许中国大陆」开关；这里填了就以这里为准。内网来源不受限制。</span>
               </div>
               <div class="f" data-when="proxy">
                 <label>响应头超时（秒）</label>

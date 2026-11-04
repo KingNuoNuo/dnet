@@ -142,6 +142,15 @@ func (s *Server) WAFAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			helper.Info(helper.LogTypeWebService, "WAF 防护设置已保存 [封禁=%t, 阈值=%d, 限速=%d/s, TLS=%s]",
 				guard.BanEnabled, guard.Threshold, guard.RateLimit, security.TLSMinVersion)
+		case "geoip_update":
+			status, err := downloadGeoIP()
+			if err != nil {
+				helper.Error(helper.LogTypeWebService, "下载 IP 归属地库失败: %v", err)
+				helper.ReturnError(w, err.Error())
+				return
+			}
+			helper.Info(helper.LogTypeWebService, "IP 归属地库已就绪 [%s，构建于 %s，%d 字节]",
+				status.Database, status.BuiltAt.Format("2006-01-02"), status.Bytes)
 		case "unban":
 			if strings.TrimSpace(payload.IP) == "" {
 				helper.ReturnError(w, "缺少要解封的 IP")
@@ -192,6 +201,7 @@ func (s *Server) WAFAPI(w http.ResponseWriter, r *http.Request) {
 		Groups   []waf.RuleGroup `json:"groups"`
 		Policies []waf.Policy    `json:"policies"`
 		Stats    waf.Stats       `json:"stats"`
+		GeoIP    waf.GeoIPStatus `json:"geoip"`
 		Excluded struct {
 			Manual []string `json:"manual"`
 			Auto   []string `json:"auto"`
@@ -199,7 +209,7 @@ func (s *Server) WAFAPI(w http.ResponseWriter, r *http.Request) {
 		Guard    config.WAFGuard `json:"guard"`
 		Security config.Security `json:"security"`
 		Bans     []waf.Ban       `json:"bans"`
-	}{groups, conf.WAFPolicies, waf.Snapshot(), struct {
+	}{groups, conf.WAFPolicies, waf.Snapshot(), waf.GeoIPState(), struct {
 		Manual []string `json:"manual"`
 		Auto   []string `json:"auto"`
 	}{manual, auto}, guard, security, waf.Bans()})
