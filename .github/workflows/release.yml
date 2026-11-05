@@ -135,6 +135,9 @@ jobs:
             echo "- WAF 地区限制：策略里「仅允许中国大陆」开关一键只放行 CN 来源（服务行 \`country_policy\` 优先，内网 / 回环 / CGNAT 始终放行）；IP 归属地库可在页面一键下载 DB-IP Country Lite（免注册、每月更新、解压校验后热加载，显示库类型与构建日期）"
             echo "- 自更新指向本仓库：\`dnet -u\` 只查询 KingNuoNuo/dnet 的 Releases，发布同时提供 checksums.txt 与 x86_64 / i386 / armv5-7 命名的资产"
             echo
+            echo "### 修复"
+            echo "- 证书上传阿里云 ESA 时会误报 \`Certificate.Duplicated\`：改为分页拉取站点全量证书后本地按名称精确匹配（原来用的 \`Keyword\` 匹配不到证书 Name 字段，且默认只返回 10 条），撞上重复时再拉一次列表并按 Id 覆盖；日志同时记录被覆盖旧证书的到期时间"
+            echo
             echo "### 命令行"
             echo "- \`dnet -h\` 输出完整中文帮助（参数说明、默认值、服务管理子命令与示例）"
             echo

@@ -366,8 +366,12 @@ func (s *Server) deployCertificateLocked(conf *config.Config, index int) bool {
 		cert.DeployedAt = time.Now()
 		cert.DeployedFingerprint = certdeploy.Fingerprint(*cert)
 		for _, report := range reports {
-			helper.Info(helper.LogTypeSSL, "证书已上传 [%s, 目标=%s, 站点=%s, 名称=%s, 证书ID=%s, 更新=%v]",
-				cert.Name, report.Provider, report.Site, report.CertName, report.CertID, report.Updated)
+			detail := ""
+			if report.Updated && report.PrevNotAfter != "" {
+				detail = fmt.Sprintf(", 覆盖旧证书到期=%s", report.PrevNotAfter)
+			}
+			helper.Info(helper.LogTypeSSL, "证书已上传 [%s, 目标=%s, 站点=%s, 名称=%s, 证书ID=%s, 更新=%v%s]",
+				cert.Name, report.Provider, report.Site, report.CertName, report.CertID, report.Updated, detail)
 		}
 	}
 	if saveErr := s.configRepo.Save(conf); saveErr != nil {

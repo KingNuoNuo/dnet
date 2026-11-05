@@ -41,6 +41,9 @@ type Report struct {
 	CertName string `json:"cert_name"`
 	CertID   string `json:"cert_id"`
 	Updated  bool   `json:"updated"`
+	// PrevNotAfter 是被覆盖的那张旧证书的到期时间（UTC，原样来自云端）。
+	// 只在更新时才有值，用来在日志里对比「旧证书到期 → 新证书到期」。
+	PrevNotAfter string `json:"prev_not_after,omitempty"`
 }
 
 // Fingerprint 用证书+私钥内容算指纹，用来判断「这份证书是否已经部署过」。
@@ -269,18 +272,8 @@ func deployESA(ctx context.Context, conf config.Config, cert certificates.Certif
 	}
 	siteID := sites.Sites[0].SiteID
 
-	var existing struct {
-		TotalCount int `json:"TotalCount"`
-		Result     []struct {
-			ID   string `json:"Id"`
-			Name string `json:"Name"`
-			Type string `json:"Type"`
-		} `json:"Result"`
-	}
-	listParams := url.Values{}
-	listParams.Set("SiteId", strconv.FormatInt(siteID, 10))
-	listParams.Set("Keyword", name)
-	if err := client.call(ctx, http.MethodGet, "ListCertificates", listParams, &existing); err != nil {
+	certs, err := client.listSiteCertificates(ctx, siteID)
+	if err != nil {
 		return Report{}, err
 	}
 
@@ -290,19 +283,118 @@ func deployESA(ctx context.Context, conf config.Config, cert certificates.Certif
 	setParams.Set("Name", name)
 	setParams.Set("Certificate", cert.CertPEM)
 	setParams.Set("PrivateKey", cert.KeyPEM)
+
+	found := findCertByName(certs, name)
 	updated := false
-	for _, item := range existing.Result {
-		if item.Name == name && strings.EqualFold(item.Type, "upload") && item.ID != "" {
-			setParams.Set("Id", item.ID)
-			updated = true
-			break
-		}
+	prevNotAfter := ""
+	if found != nil {
+		setParams.Set("Id", found.ID)
+		updated = true
+		prevNotAfter = found.NotAfter
 	}
 	var result struct {
 		ID string `json:"Id"`
 	}
-	if err := client.call(ctx, http.MethodPost, "SetCertificate", setParams, &result); err != nil {
+	err = client.call(ctx, http.MethodPost, "SetCertificate", setParams, &result)
+	if err != nil && !updated && isDuplicateCertError(err) {
+		// 列表接口有延迟（或分页没覆盖到）时，同名证书可能看不见，
+		// 于是走了新建分支撞上唯一键。重新拉一次全量再按 Id 更新。
+		if again, listErr := client.listSiteCertificates(ctx, siteID); listErr == nil {
+			if retry := findCertByName(again, name); retry != nil {
+				setParams.Set("Id", retry.ID)
+				prevNotAfter = retry.NotAfter
+				found = retry
+				if retryErr := client.call(ctx, http.MethodPost, "SetCertificate", setParams, &result); retryErr == nil {
+					updated = true
+					err = nil
+				} else {
+					err = retryErr
+				}
+			}
+		}
+	}
+	if err != nil {
+		if found != nil && !strings.EqualFold(strings.TrimSpace(found.Type), "upload") {
+			return Report{}, fmt.Errorf(
+				"%w（ESA 上已存在同名证书「%s」，类型 %s，dnet 只能覆盖自己上传的 upload 类型证书；"+
+					"请在 ESA 控制台删除它，或在本证书的部署设置里改「ESA 证书名」）",
+				err, name, found.Type)
+		}
 		return Report{}, err
 	}
-	return Report{Provider: ProviderAliyunESA, Site: site, CertName: name, CertID: result.ID, Updated: updated}, nil
+	return Report{
+		Provider:     ProviderAliyunESA,
+		Site:         site,
+		CertName:     name,
+		CertID:       result.ID,
+		Updated:      updated,
+		PrevNotAfter: prevNotAfter,
+	}, nil
+}
+
+// esaCert 是 ListCertificates 返回的一条证书记录（只取用得到的字段）。
+type esaCert struct {
+	ID         string `json:"Id"`
+	Name       string `json:"Name"`
+	Type       string `json:"Type"`
+	Status     string `json:"Status"`
+	CommonName string `json:"CommonName"`
+	NotAfter   string `json:"NotAfter"`
+}
+
+// listSiteCertificates 分页拉取站点下的全部证书。
+//
+// 不能用 Keyword 过滤：ESA 的 Keyword 匹配不到证书的 Name 字段（实测按证书名
+// 搜索返回空，但用同名创建会被 Certificate.Duplicated 拒绝），一旦漏掉同名证书
+// 就会误判成「不存在」，走到新建分支后必然失败。所以这里整表翻页，本地精确匹配。
+func (c *esaClient) listSiteCertificates(ctx context.Context, siteID int64) ([]esaCert, error) {
+	const pageSize = 100
+	var all []esaCert
+	for page := 1; page <= 50; page++ {
+		params := url.Values{}
+		params.Set("SiteId", strconv.FormatInt(siteID, 10))
+		params.Set("PageNumber", strconv.Itoa(page))
+		params.Set("PageSize", strconv.Itoa(pageSize))
+		var resp struct {
+			TotalCount int       `json:"TotalCount"`
+			Result     []esaCert `json:"Result"`
+		}
+		if err := c.call(ctx, http.MethodGet, "ListCertificates", params, &resp); err != nil {
+			return all, err
+		}
+		all = append(all, resp.Result...)
+		if len(resp.Result) == 0 || len(all) >= resp.TotalCount {
+			break
+		}
+	}
+	return all, nil
+}
+
+// findCertByName 按证书名精确匹配，优先返回 upload 类型（只有这种能被 dnet 覆盖）。
+func findCertByName(certs []esaCert, name string) *esaCert {
+	want := strings.TrimSpace(name)
+	var other *esaCert
+	for i := range certs {
+		item := &certs[i]
+		if item.ID == "" || !strings.EqualFold(strings.TrimSpace(item.Name), want) {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(item.Type), "upload") {
+			return item
+		}
+		if other == nil {
+			other = item
+		}
+	}
+	return other
+}
+
+// isDuplicateCertError 判断是否是「证书名已存在」的冲突。
+func isDuplicateCertError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "certificate.duplicated") ||
+		strings.Contains(msg, "certificate name already exists")
 }
