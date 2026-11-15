@@ -404,6 +404,7 @@ func Record(ev BlockEvent) bool {
 	if len(blockStats.recent) > maxRecentEvents {
 		blockStats.recent = blockStats.recent[len(blockStats.recent)-maxRecentEvents:]
 	}
+	markStateDirty()
 	return true
 }
 

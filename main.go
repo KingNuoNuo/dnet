@@ -171,6 +171,13 @@ func main() {
 		break
 	}
 
+	// WAF 拦截记录与临时封禁落盘到配置目录，重启后不会清零。
+	// 读不到或格式不兼容时按空记录继续，不影响启动。
+	statePath := filepath.Join(filepath.Dir(config.GetConfigFilePath()), "waf_state.json")
+	if err := waf.EnableStatePersistence(statePath); err != nil {
+		helper.Warn(helper.LogTypeWebService, "WAF 拦截记录未能恢复 [%s]: %v", statePath, err)
+	}
+
 	if runtime.GOOS == "android" {
 		helper.FixTimezone()
 	}
@@ -294,6 +301,8 @@ func runWebServer() error {
 func run() {
 	shutdown, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
+	// 退出前把最后一个刷盘间隔内的 WAF 拦截记录补写一次。
+	defer waf.FlushState()
 	defer forwardManager.Close()
 	defer webServiceManager.Close()
 	go webServer.RunCertificateMaintenance(shutdown)

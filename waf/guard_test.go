@@ -5,10 +5,15 @@ import (
 	"time"
 )
 
+// resetGuardForTest 把守卫状态清干净：不只清固定几个 IP，
+// 否则前一个用例留下的封禁会污染下一个用例（例如「过期封禁应被丢弃」）。
 func resetGuardForTest() {
 	ConfigureGuard(GuardSettings{BanEnabled: false, RateLimit: 0, Burst: 1})
-	Unban("203.0.113.50")
-	Unban("198.51.100.9")
+	guardState.Lock()
+	guardState.bans = map[string]*Ban{}
+	guardState.hits = map[string]*hitWindow{}
+	guardState.buckets = map[string]*rateBucket{}
+	guardState.Unlock()
 }
 
 func TestGuardAutoBan(t *testing.T) {

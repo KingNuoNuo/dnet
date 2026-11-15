@@ -199,6 +199,9 @@ func RecordBlock(value string) (bool, time.Time) {
 	}
 	notifier := guardState.notifier
 	guardState.Unlock()
+	if !until.IsZero() {
+		markStateDirty()
+	}
 	if !until.IsZero() && notifier != nil {
 		go notifier(ipValue, until)
 	}
@@ -226,10 +229,14 @@ func Bans() []Ban {
 func Unban(value string) {
 	key := normalizeIP(value)
 	guardState.Lock()
+	_, existed := guardState.bans[key]
 	delete(guardState.bans, key)
 	delete(guardState.hits, key)
 	delete(guardState.buckets, key)
 	guardState.Unlock()
+	if existed {
+		markStateDirty()
+	}
 }
 
 // GuardSettingsFrom 构造运行时设置（避免 waf 包反向依赖 config）。
