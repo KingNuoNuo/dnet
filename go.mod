@@ -1,6 +1,6 @@
 module github.com/cxbdasheng/dnet
 
-go 1.26.10
+go 1.26.11
 
 require (
 	github.com/corazawaf/coraza-coreruleset/v4 v4.25.0
