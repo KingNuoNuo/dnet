@@ -137,6 +137,7 @@ jobs:
             echo "- 自更新指向本仓库：\`dnet -u\` 只查询 KingNuoNuo/dnet 的 Releases，发布同时提供 checksums.txt 与 x86_64 / i386 / armv5-7 命名的资产"
             echo
             echo "### 修复"
+            echo "- Web 服务流量统计偏小：原来只数请求体（GET 请求恒为 0、响应头完全不计、WebSocket 升级后不再计数），改为在监听器最内层按连接统计真实收发字节（含请求/响应头与 TLS 记录），查询状态时结算未关闭的连接；DWS / DPF 两页状态默认 5 秒刷新，切回标签页立即补刷"
             echo "- 证书上传阿里云 ESA 时会误报 \`Certificate.Duplicated\`：改为分页拉取站点全量证书后本地按名称精确匹配（原来用的 \`Keyword\` 匹配不到证书 Name 字段，且默认只返回 10 条），撞上重复时再拉一次列表并按 Id 覆盖；日志同时记录被覆盖旧证书的到期时间"
             echo
             echo "### 命令行"

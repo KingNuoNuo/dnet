@@ -123,7 +123,7 @@
                   <span>监听端口</span>
                   <span>目标地址</span>
                   <span>运行状态</span>
-                  <span>流量</span>
+                  <span title="按连接统计的收发字节，含请求/响应头">流量</span>
                   <span>连接</span>
                   <span>备注</span>
                   <span></span>
@@ -478,7 +478,7 @@
         const s = status.find((x) => x.id === id);
         if (!s) return '<span class="dnet-traffic dim">—</span>';
         return (
-          '<span class="dnet-traffic" title="自上次启动以来的收发字节数">' +
+          '<span class="dnet-traffic" title="自上次启动以来按连接统计的收发字节（含请求/响应头，WebSocket 数据也计入）">' +
           `<b>${bytes(s.upload || 0)}</b> 入 · <b>${bytes(s.download || 0)}</b> 出` +
           "</span>"
         );
@@ -964,7 +964,10 @@
           restore(data);
         })
         .catch(error);
-      setInterval(async () => {
+      /* 状态与流量默认每 5 秒刷新一次；切回标签页立刻补一次，
+         避免看着像「数字卡住了」。 */
+      const POLL_MS = 5000;
+      async function pollStatus() {
         if (busy || !loaded || document.hidden) return;
         try {
           const data = await api();
@@ -974,7 +977,11 @@
         } catch {
           /* 轮询失败静默，避免网络抖动时反复弹窗 */
         }
-      }, 5000);
+      }
+      setInterval(pollStatus, POLL_MS);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) pollStatus();
+      });
     });
   </script>
 </html>

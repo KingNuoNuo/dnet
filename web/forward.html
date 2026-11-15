@@ -584,7 +584,7 @@
           const s = statusOf(id);
           if (!s) return '<span class="dnet-traffic dim">—</span>';
           return (
-            '<span class="dnet-traffic" title="自上次启动以来的转发量">' +
+            '<span class="dnet-traffic" title="自上次启动以来的转发量（TCP 载荷，不含协议头）">' +
             `<b>${bytes(s.upload || 0)}</b> 入 · <b>${bytes(s.download || 0)}</b> 出` +
             "</span>"
           );
@@ -1006,7 +1006,9 @@
             probeAll(false);
           })
           .catch(error);
-        setInterval(async () => {
+        /* 状态与流量默认每 5 秒刷新一次；切回标签页立刻补一次。 */
+        const POLL_MS = 5000;
+        async function pollStatus() {
           if (busy || !loaded || document.hidden) return;
           try {
             live = await api();
@@ -1014,7 +1016,11 @@
           } catch {
             /* 轮询失败静默，避免网络抖动时反复弹窗 */
           }
-        }, 5000);
+        }
+        setInterval(pollStatus, POLL_MS);
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) pollStatus();
+        });
         setInterval(() => {
           if (busy || !loaded || probing || dirty || document.hidden) return;
           probeAll(false);

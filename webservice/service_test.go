@@ -265,6 +265,116 @@ func TestWebSocketUpgradeAndShutdown(t *testing.T) {
 		t.Fatal("upgraded connection survived shutdown")
 	}
 }
+
+// WebSocket 升级之后的双向数据以前完全不计数（按请求体统计天然看不到），
+// 现在靠连接级计数 + Status() 结算，长连接也能看到流量。
+func TestTrafficCountsHijackedStream(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, rw, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		fmt.Fprint(rw, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+		rw.Flush()
+		io.Copy(c, c)
+	}))
+	defer up.Close()
+
+	r := testRule(t, up.URL)
+	m := NewManager()
+	defer m.Close()
+	if err := m.Apply([]Rule{r}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := net.Dial("tcp", r.address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(3 * time.Second))
+	fmt.Fprintf(c, "GET / HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", r.Domain)
+	reader := bufio.NewReader(c)
+	res, err := http.ReadResponse(reader, nil)
+	if err != nil || res.StatusCode != 101 {
+		t.Fatal("upgrade failed", err)
+	}
+	payload := []byte("ping-pong-stream")
+	if _, err := c.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	echo := make([]byte, len(payload))
+	if _, err := io.ReadFull(reader, echo); err != nil {
+		t.Fatal(err)
+	}
+
+	stats := m.Status()
+	if len(stats) != 1 {
+		t.Fatalf("status = %+v", stats)
+	}
+	if stats[0].Upload < int64(len(payload)) {
+		t.Fatalf("升级后上行未计数: %d", stats[0].Upload)
+	}
+	if stats[0].Download < int64(len(payload)) {
+		t.Fatalf("升级后下行未计数: %d", stats[0].Download)
+	}
+}
+
+// TLS 站点要穿过 tls.Conn / peekConn / trackedConn 才能找到计数器，
+// 这条用例防止那条链路静默失效（失效的表现是 HTTPS 规则流量恒为 0）。
+func TestTrafficCountsTLSSite(t *testing.T) {
+	up := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "tls-body") }))
+	defer up.Close()
+	cert := up.TLS.Certificates[0]
+	dir := t.TempDir()
+	r := testRule(t, up.URL)
+	r.TLS = true
+	r.InsecureSkipVerify = true
+	r.Certificate = filepath.Join(dir, "cert.pem")
+	r.Key = filepath.Join(dir, "key.pem")
+	if err := os.WriteFile(r.Certificate, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	key, err := marshalTestKey(cert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(r.Key, key, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager()
+	defer m.Close()
+	if err := m.Apply([]Rule{r}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	client := up.Client()
+	client.Timeout = 3 * time.Second
+	req, _ := http.NewRequest("GET", "https://"+r.address(), nil)
+	req.Host = r.Domain
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := body(t, res); got != "tls-body" {
+		t.Fatalf("body = %q", got)
+	}
+	client.CloseIdleConnections()
+
+	stats := m.Status()
+	if len(stats) != 1 {
+		t.Fatalf("status = %+v", stats)
+	}
+	if stats[0].Upload <= 0 {
+		t.Fatal("HTTPS 站点上行未计数")
+	}
+	if stats[0].Download < int64(len("tls-body")) {
+		t.Fatalf("HTTPS 站点下行 = %d", stats[0].Download)
+	}
+}
+
 func TestCorazaWAFSwitch(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
@@ -505,6 +615,46 @@ func TestUpstreamTLSSkipVerify(t *testing.T) {
 	}
 	if got := body(t, res); got != "ok" {
 		t.Fatalf("body = %q", got)
+	}
+}
+
+// 流量按连接真实收发字节统计，所以没有请求体的 GET 也应该有上行（请求头），
+// 响应头也要计入下行。原来只数请求体 / 响应体，GET 的上行恒为 0。
+func TestTrafficCountsHeadersNotJustBody(t *testing.T) {
+	pad := strings.Repeat("h", 2048)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Pad", pad)
+		io.WriteString(w, "ok")
+	}))
+	defer upstream.Close()
+
+	rule := testRule(t, upstream.URL)
+	manager := NewManager()
+	defer manager.Close()
+	if err := manager.Apply([]Rule{rule}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequest("GET", "http://"+rule.address()+"/", nil)
+	req.Host = rule.Domain
+	req.Header.Set("X-Pad", pad)
+	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 3 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body(t, res)
+	client.CloseIdleConnections()
+
+	stats := manager.Status()
+	if len(stats) != 1 {
+		t.Fatalf("status = %+v", stats)
+	}
+	if got := stats[0].Upload; got < int64(len(pad)) {
+		t.Fatalf("上行应包含请求头，实际 %d < %d", got, len(pad))
+	}
+	if got := stats[0].Download; got < int64(len(pad)+len("ok")) {
+		t.Fatalf("下行应包含响应头，实际 %d < %d", got, len(pad)+len("ok"))
 	}
 }
 

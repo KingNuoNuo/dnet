@@ -2,12 +2,10 @@
 package webservice
 
 import (
-	"bufio"
 	"context"
 	"crypto/tls"
 	"fmt"
 	"html/template"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -235,46 +233,151 @@ type site struct {
 	rule      Rule
 	handler   http.Handler
 	transport *http.Transport
+	stats     *ruleStats
 }
 
 var jumpPage = template.Must(template.New("jump").Parse(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>正在跳转</title></head><body><p>正在跳转，如未自动跳转，请<a href="{{.}}">点击继续</a>。</p><script>window.location.replace({{.}});</script></body></html>`))
 
-// countingWriter 统计响应字节数，同时保留 Hijacker/Flusher 以便 WebSocket 升级。
-type countingWriter struct {
-	http.ResponseWriter
-	written *atomic.Uint64
+// countingConn 按连接统计原始收发字节（含请求/响应头、分块信息与 TLS 记录）。
+// 这才是路由器接口计数器能对上的「流量」：原来按请求体计数，GET 请求上行恒为 0，
+// WebSocket 升级后的数据更是完全不计。
+type countingConn struct {
+	net.Conn
+	read    atomic.Int64
+	written atomic.Int64
+
+	mu          sync.Mutex
+	owner       *ruleStats // 当前字节归属的规则
+	flushedUp   int64      // 已经计入 owner 的上行字节
+	flushedDown int64      // 已经计入 owner 的下行字节
 }
 
-func (w *countingWriter) Write(p []byte) (int, error) {
-	n, err := w.ResponseWriter.Write(p)
-	w.written.Add(uint64(n))
+func (c *countingConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		c.read.Add(int64(n))
+	}
 	return n, err
 }
 
-func (w *countingWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
+func (c *countingConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if n > 0 {
+		c.written.Add(int64(n))
 	}
-}
-
-func (w *countingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	h, ok := w.ResponseWriter.(http.Hijacker)
-	if !ok {
-		return nil, nil, fmt.Errorf("响应不支持连接劫持")
-	}
-	return h.Hijack()
-}
-
-// countingReader 统计请求体字节数（上行流量）。
-type countingReader struct {
-	io.ReadCloser
-	read *atomic.Uint64
-}
-
-func (r *countingReader) Read(p []byte) (int, error) {
-	n, err := r.ReadCloser.Read(p)
-	r.read.Add(uint64(n))
 	return n, err
+}
+
+// Close 在关闭前把剩余字节结算掉，WebSocket 这类长连接靠这一步收尾。
+func (c *countingConn) Close() error {
+	connRegistry.drop(c)
+	c.flush()
+	return c.Conn.Close()
+}
+
+// attribute 把之后产生的字节记到 st 名下。同端口多域名时，同一连接换站点会改写归属。
+func (c *countingConn) attribute(st *ruleStats) {
+	if st == nil {
+		return
+	}
+	c.mu.Lock()
+	c.owner = st
+	c.mu.Unlock()
+}
+
+// flush 把上次结算之后新增的字节加给当前归属对象。只加增量，重复调用不会重复计；
+// 没有归属时也推进水位，避免这部分字节记到后来的规则头上。
+func (c *countingConn) flush() {
+	c.mu.Lock()
+	up, down := c.read.Load(), c.written.Load()
+	deltaUp, deltaDown := up-c.flushedUp, down-c.flushedDown
+	c.flushedUp, c.flushedDown = up, down
+	owner := c.owner
+	c.mu.Unlock()
+	if owner == nil {
+		return
+	}
+	if deltaUp > 0 {
+		owner.upload.Add(uint64(deltaUp))
+	}
+	if deltaDown > 0 {
+		owner.download.Add(uint64(deltaDown))
+	}
+}
+
+// connRegistry 记录活跃连接，供 Status() 主动结算。
+// http.Server 会把响应写进自己的 bufio 缓冲，等 handler 返回之后才落到 conn 上，
+// 所以不能在请求结束时结算（那时字节还没写出去），只能在读状态时结算。
+type connSet struct {
+	sync.Mutex
+	conns map[*countingConn]struct{}
+}
+
+var connRegistry = &connSet{conns: map[*countingConn]struct{}{}}
+
+func (r *connSet) add(c *countingConn) {
+	r.Lock()
+	r.conns[c] = struct{}{}
+	r.Unlock()
+}
+
+func (r *connSet) drop(c *countingConn) {
+	r.Lock()
+	delete(r.conns, c)
+	r.Unlock()
+}
+
+// settle 把全部活跃连接的新增字节归属掉，返回本次新增的上行 / 下行合计。
+func (r *connSet) settle() {
+	r.Lock()
+	conns := make([]*countingConn, 0, len(r.conns))
+	for c := range r.conns {
+		conns = append(conns, c)
+	}
+	r.Unlock()
+	for _, c := range conns {
+		c.flush()
+	}
+}
+
+// countingListener 套在监听器最内层（TLS 之下），统计的是网卡视角的原始字节。
+type countingListener struct {
+	net.Listener
+}
+
+func (l countingListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	cc := &countingConn{Conn: c}
+	connRegistry.add(cc)
+	return cc, nil
+}
+
+// connContextKey 用于把连接放进请求 context，供 handler 找到它的计数器。
+type connContextKey struct{}
+
+// connStatsOf 从任意一层包装里找出 countingConn。
+// TLS 连接是 tls.Conn，往下是 peekConn / trackedConn，都实现了 Unwrap。
+func connStatsOf(c net.Conn) *countingConn {
+	for range 8 {
+		if c == nil {
+			return nil
+		}
+		if cc, ok := c.(*countingConn); ok {
+			return cc
+		}
+		switch v := c.(type) {
+		case interface{ Unwrap() net.Conn }:
+			c = v.Unwrap()
+		case interface{ NetConn() net.Conn }:
+			c = v.NetConn()
+		default:
+			return nil
+		}
+	}
+	return nil
 }
 
 func newSite(r Rule, rules []Rule, engine *waf.Engine, policy waf.Policy, st *ruleStats, security SecurityOptions) *site {
@@ -344,7 +447,7 @@ func newSite(r Rule, rules []Rule, engine *waf.Engine, policy waf.Policy, st *ru
 			http.Error(w, "目标服务暂时不可用", http.StatusBadGateway)
 		},
 	}
-	s := &site{rule: r, transport: transport}
+	s := &site{rule: r, transport: transport, stats: st}
 	auth := newAccessAuth()
 	s.handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if security.HSTS && r.TLS {
@@ -353,10 +456,6 @@ func newSite(r Rule, rules []Rule, engine *waf.Engine, policy waf.Policy, st *ru
 		if st != nil {
 			st.active.Add(1)
 			defer st.active.Add(-1)
-			w = &countingWriter{ResponseWriter: w, written: &st.download}
-			if req.Body != nil {
-				req.Body = &countingReader{ReadCloser: req.Body, read: &st.upload}
-			}
 		}
 		if r.AuthEnabled {
 			if code := auth.check(req, r, time.Now()); code != 0 {
@@ -478,6 +577,9 @@ type trackedConn struct {
 	once  sync.Once
 }
 
+// Unwrap 让 connStatsOf 能穿过这一层找到 countingConn。
+func (c *trackedConn) Unwrap() net.Conn { return c.Conn }
+
 func (c *trackedConn) Close() error {
 	err := c.Conn.Close()
 	c.once.Do(func() { c.group.mu.Lock(); delete(c.group.connections, c); c.group.mu.Unlock() })
@@ -529,6 +631,16 @@ func (g *group) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		http.Redirect(w, r, target.String(), http.StatusTemporaryRedirect)
 		return
+	}
+	// 连接级的真实流量按请求归属。这里只登记归属，不结算：http.Server 会把响应
+	// 写进自己的 bufio 缓冲，等 handler 返回之后才落到 conn 上，过早结算会漏掉
+	// 整个响应体。实际结算发生在 Status() 轮询与连接关闭时。
+	if s.stats != nil {
+		if raw, ok := r.Context().Value(connContextKey{}).(net.Conn); ok {
+			if conn := connStatsOf(raw); conn != nil {
+				conn.attribute(s.stats)
+			}
+		}
 	}
 	s.handler.ServeHTTP(w, r)
 }
@@ -621,6 +733,8 @@ func NewManager() *Manager {
 	return &Manager{groups: map[string]*group{}, stats: map[string]*ruleStats{}}
 }
 func (m *Manager) Status() []Status {
+	// 先把活跃连接上还没归属的字节结算掉，否则页面上的数字会落后于实际。
+	connRegistry.settle()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := []Status{}
@@ -715,7 +829,7 @@ func (m *Manager) Apply(rules []Rule, save func() error) error {
 			return fmt.Errorf("%s: 监听失败: %w", r.Name, err)
 		}
 		g := &group{rule: r, connections: map[net.Conn]bool{}, listening: true}
-		g.listener = trackedListener{listener, g}
+		g.listener = trackedListener{countingListener{listener}, g}
 		if r.TLS {
 			g.listener = newMixedListener(g.listener, &tls.Config{MinVersion: m.tlsMinVersion(), GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
 				g.mu.RLock()
@@ -723,7 +837,9 @@ func (m *Manager) Apply(rules []Rule, save func() error) error {
 				return g.tlsConfig, nil
 			}})
 		}
-		g.server = &http.Server{Handler: g, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20, BaseContext: func(net.Listener) context.Context { return context.Background() }}
+		g.server = &http.Server{Handler: g, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20, BaseContext: func(net.Listener) context.Context { return context.Background() }, ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			return context.WithValue(ctx, connContextKey{}, c)
+		}}
 		next[key] = g
 		created = append(created, g)
 	}

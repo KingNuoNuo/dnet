@@ -15,6 +15,9 @@ type peekConn struct {
 
 func (c *peekConn) Read(p []byte) (int, error) { return c.reader.Read(p) }
 
+// Unwrap 让 connStatsOf 能穿过这一层找到 countingConn。
+func (c *peekConn) Unwrap() net.Conn { return c.Conn }
+
 type acceptResult struct {
 	conn net.Conn
 	err  error
