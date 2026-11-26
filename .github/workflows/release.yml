@@ -117,35 +117,20 @@ jobs:
 
       - name: Generate release notes
         run: |
+          # 只写本次 tag 相对上一个 tag 的增量。历史修改清单已经在旧 Release 里，
+          # 不再每次整份复制，避免说明内容互相重复。
+          PREV=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
           {
-            echo "## 本 Fork 的修改（相对上游 [cxbdasheng/dnet](https://github.com/cxbdasheng/dnet) 基准 \`fb76da9\`）"
+            echo "## 本次更新"
             echo
-            echo "### 界面与交互"
-            echo "- 四页（DDNS / DCDN / DPF / DWS）行列表 UI 重构：行内编辑、行点击选中，超宽屏列宽封顶、整表限宽靠左"
-            echo "- 端口转发每条规则显示实时流量（↑入 / ↓出）与活跃连接数，移除全局流量 KPI 与重复的「配置」栏"
-            echo "- DDNS 解析状态列不再显示 IP（悬浮查看「期望 / 实际」明细），日期统一 \`YYYY-MM-DD\` 格式"
-            echo "- 修复会话过期后在 iframe 内登录导致页面嵌套的问题"
-            echo "- 系统日志归位：常驻日志区保留在状态总览页，移除外壳侧栏入口与日志弹窗"
-            echo
-            echo "### 功能增强"
-            echo "- 服务商凭据全局化：DNS / CDN AccessKey / Secret 统一在系统设置维护，升级时自动迁移旧凭据"
-            echo "- 防火墙自动放行：四级检测 fw4 → fw3 → nft → iptables，自适应 OpenWrt 与通用 Linux；只动 dnet- 前缀规则，端口转发与 Web 服务共用"
-            echo "- WAF 拦截统计与临时封禁落盘到配置目录 \`waf_state.json\`，重启 / 升级不再清零；5 秒合并写入，退出前补写，过期封禁加载时丢弃"
-            echo "- SSL 证书申请进度实时上报，悬浮状态格查看当前步骤"
-            echo "- Coraza WAF：独立「WAF」页面维护多套策略（CRS 规则组 + 自定义 SecLang），Web 服务按行选择策略；命中返回 403 并写 DWS 日志"
-            echo "- WAF 地区限制：策略里「仅允许中国大陆」开关一键只放行 CN 来源（服务行 \`country_policy\` 优先，内网 / 回环 / CGNAT 始终放行）；IP 归属地库可在页面一键下载 DB-IP Country Lite（免注册、每月更新、解压校验后热加载，显示库类型与构建日期）"
-            echo "- 自更新指向本仓库：\`dnet -u\` 只查询 KingNuoNuo/dnet 的 Releases，发布同时提供 checksums.txt 与 x86_64 / i386 / armv5-7 命名的资产"
-            echo
-            echo "### 修复"
-            echo "- Web 服务流量统计偏小：原来只数请求体（GET 请求恒为 0、响应头完全不计、WebSocket 升级后不再计数），改为在监听器最内层按连接统计真实收发字节（含请求/响应头与 TLS 记录），查询状态时结算未关闭的连接；DWS / DPF 两页状态默认 5 秒刷新，切回标签页立即补刷"
-            echo "- 证书上传阿里云 ESA 时会误报 \`Certificate.Duplicated\`：改为分页拉取站点全量证书后本地按名称精确匹配（原来用的 \`Keyword\` 匹配不到证书 Name 字段，且默认只返回 10 条），撞上重复时再拉一次列表并按 Id 覆盖；日志同时记录被覆盖旧证书的到期时间"
-            echo
-            echo "### 命令行"
-            echo "- \`dnet -h\` 输出完整中文帮助（参数说明、默认值、服务管理子命令与示例）"
-            echo
-            echo "## 提交记录"
-            echo
-            git log --oneline --no-decorate fb76da9.."${GITHUB_REF_NAME}" | head -60 || true
+            if [ -n "$PREV" ]; then
+              git log --oneline --no-decorate "${PREV}..${GITHUB_REF_NAME}"
+              echo
+              echo "**Full Changelog**: https://github.com/KingNuoNuo/dnet/compare/${PREV}...${GITHUB_REF_NAME}"
+            else
+              echo "首个 Release。"
+              git log --oneline --no-decorate "${GITHUB_REF_NAME}" | head -60
+            fi
           } > RELEASE_NOTES.md
           cat RELEASE_NOTES.md
 
