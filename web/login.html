@@ -238,11 +238,19 @@
 </body>
 <script src="/static/layui.js"></script>
 <script>
-    // 会话过期时，内容 iframe 会先于顶层壳拿到登录页。如果放任它留在 iframe 里，
-    // 登录成功后的 window.location.href='/' 会把整个壳嵌进内容框（页面套页面）。
-    // 一旦发现自己在 iframe 里，就把顶层整个带去 '/' —— 未登录会被重定向到
-    // 顶层登录页，登录后正常整页进入，不会出现嵌套。
-    if (window.top !== window.self) {
+    // 会话过期时，D-NET 自己的内容 iframe 会先于顶层壳拿到登录页。如果放任它
+    // 留在那个 iframe 里，登录成功后的 window.location.href='/' 会把整个壳
+    // 再嵌进内容框（页面套页面），所以这种情况仍要把顶层带去 '/'。
+    // 但 LuCI 用 iframe 内嵌管理界面时，父页面是同主机的 80/443 或其他端口，
+    // 应当允许登录页留在框内；其他站点仍不允许套用登录框。
+    var parentIsLuCI = false;
+    try {
+        var ref = new URL(document.referrer);
+        parentIsLuCI = ref.hostname === window.location.hostname &&
+            (ref.protocol === 'http:' || ref.protocol === 'https:') &&
+            ref.port !== window.location.port;
+    } catch (e) {}
+    if (window.top !== window.self && !parentIsLuCI) {
         window.top.location.replace('/');
     }
     layui.use(function () {
