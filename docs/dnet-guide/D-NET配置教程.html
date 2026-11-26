@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>D-NET + LuCI 配置教程</title>
+<style>
+  :root{
+    --bg:#f5f7fa; --card:#fff; --ink:#1f2933; --sub:#6b7280; --line:#e5e9ef;
+    --brand:#2563eb; --brand-soft:#eff5ff; --ok:#0f9d58; --warn:#d97706; --danger:#dc2626;
+    --code-bg:#1f2430; --code-ink:#e6edf3;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.75 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+  a{color:var(--brand);text-decoration:none}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px 80px}
+  header{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;padding:48px 24px 40px}
+  header .inner{max-width:1120px;margin:0 auto}
+  header h1{margin:0 0 10px;font-size:34px;letter-spacing:.5px}
+  header p{margin:4px 0;color:#dbeafe;font-size:15px}
+  .badges{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap}
+  .badge{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);
+    padding:5px 12px;border-radius:20px;font-size:12.5px}
+  nav.toc{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.96);
+    border-bottom:1px solid var(--line);backdrop-filter:blur(8px)}
+  nav.toc .inner{max-width:1120px;margin:0 auto;padding:10px 24px;display:flex;gap:6px;
+    flex-wrap:wrap}
+  nav.toc a{font-size:13px;color:var(--sub);padding:4px 10px;border-radius:6px}
+  nav.toc a:hover{background:var(--brand-soft);color:var(--brand)}
+  section{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:28px 32px;margin:24px 0;box-shadow:0 1px 3px rgba(16,24,40,.04)}
+  h2{margin:0 0 6px;font-size:23px;padding-bottom:12px;border-bottom:2px solid var(--brand-soft)}
+  h2 .num{color:var(--brand);font-weight:700;margin-right:8px}
+  h3{margin:26px 0 10px;font-size:17px;color:#111827}
+  h4{margin:18px 0 8px;font-size:15px}
+  p{margin:10px 0}
+  .lead{color:var(--sub);font-size:14.5px}
+  figure{margin:18px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+  figure img{display:block;width:100%;height:auto}
+  figcaption{background:#f8fafc;color:var(--sub);font-size:12.5px;padding:8px 14px;border-top:1px solid var(--line)}
+  .note,.tip,.warn{border-left:4px solid;padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px}
+  .note{background:#eff6ff;border-color:var(--brand)}
+  .tip{background:#ecfdf5;border-color:var(--ok)}
+  .warn{background:#fffbeb;border-color:var(--warn)}
+  code{background:#eef1f5;color:#b91c1c;padding:1px 6px;border-radius:4px;
+    font:12.5px/1.5 ui-monospace,Consolas,monospace}
+  pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;border-radius:8px;
+    overflow:auto;font:12.5px/1.65 ui-monospace,Consolas,monospace;margin:12px 0}
+  pre code{background:none;color:inherit;padding:0}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:#f8fafc;font-weight:600}
+  tr:nth-child(even) td{background:#fbfcfe}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .step{counter-increment:step;position:relative;padding-left:40px;margin:16px 0}
+  .step::before{content:counter(step);position:absolute;left:0;top:1px;width:27px;height:27px;
+    background:var(--brand);color:#fff;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:700}
+  .steps{counter-reset:step}
+  .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:16px 0;font-size:13.5px}
+  .flow .box{background:var(--brand-soft);color:#1d4ed8;border:1px solid #bfdbfe;
+    padding:8px 14px;border-radius:8px;font-weight:600}
+  .flow .arrow{color:var(--sub)}
+  .footer{text-align:center;color:var(--sub);font-size:12.5px;padding:30px 0}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}section{padding:20px}header h1{font-size:26px}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <h1>D-NET + LuCI 配置教程</h1>
+    <p>从安装插件、启动服务，到 DCDN / DDNS / 端口转发 / Web 服务 / WAF 的完整配置指引</p>
+    <p>面向 OpenWrt / QWRT 路由，D-NET v0.4.5 · 所有截图均为真实界面</p>
+    <div class="badges">
+      <span class="badge">LuCI 插件 3 个 Tab</span>
+      <span class="badge">D-NET Web 10 个页面</span>
+      <span class="badge">含 WAF 例外实战</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc"><div class="inner">
+  <a href="#arch">① 整体架构</a>
+  <a href="#install">② 安装与启动</a>
+  <a href="#luci">③ LuCI 插件</a>
+  <a href="#login">④ D-NET Web 登录</a>
+  <a href="#overview">⑤ 总览</a>
+  <a href="#dcdn">⑥ 动态 CDN</a>
+  <a href="#ddns">⑦ 动态 DNS</a>
+  <a href="#forward">⑧ 端口转发</a>
+  <a href="#webservice">⑨ Web 服务</a>
+  <a href="#waf">⑩ Coraza WAF</a>
+  <a href="#cert">⑪ 证书管理</a>
+  <a href="#other">⑫ 设置 / Webhook / 日志</a>
+  <a href="#faq">⑬ 常见问题</a>
+</div></nav>
+
+<div class="wrap">
+
+<section id="arch">
+  <h2><span class="num">01</span>整体架构：两层管理界面</h2>
+  <p class="lead">D-NET 有两套界面，分工不同。理解这个关系，配置时就不会迷路。</p>
+  <div class="flow">
+    <span class="box">LuCI 插件（路由器 80 端口）</span>
+    <span class="arrow">→ 管服务与程序</span>
+    <span class="box">D-NET Web（9877 端口）</span>
+    <span class="arrow">→ 管业务功能</span>
+  </div>
+  <table>
+    <tr><th>界面</th><th>入口</th><th>管什么</th></tr>
+    <tr><td><b>LuCI 插件</b></td><td>路由管理页 → 服务 → D-NET</td><td>服务开关、程序/配置路径、自动下载与升级、配置加密、日志、内嵌仪表板</td></tr>
+    <tr><td><b>D-NET Web</b></td><td><code>http://路由器IP:9877</code>，或在 LuCI「仪表板」里直接内嵌</td><td>动态 CDN、动态 DNS、端口转发、Web 服务、WAF、证书、Webhook、系统设置、日志</td></tr>
+  </table>
+  <div class="note"><b>要点：</b>LuCI 插件不负责具体业务配置，它只管「程序跑不跑、在哪、什么版本」。真正的规则都在 D-NET Web 里配。</div>
+</section>
+
+<section id="install">
+  <h2><span class="num">02</span>安装与启动</h2>
+  <div class="steps">
+    <div class="step"><b>安装插件</b>：<code>opkg install luci-app-dnet_1.0.0-21_all.ipk</code>，或在 OpenWrt 源码树里编译。插件本身<b>不含</b> D-NET 程序。</div>
+    <div class="step"><b>进入页面</b>：路由管理页 →「服务」→「D-NET」。默认服务是<b>关闭</b>的。</div>
+    <div class="step"><b>确认路径</b>：应用程序 <code>/usr/bin/dnet</code>，配置文件 <code>/etc/dnet/.dnet_config.yaml</code>。填目录也可以，程序会自动补文件名。</div>
+    <div class="step"><b>勾选启用并「保存并应用」</b>：如果程序不存在，插件会自动从 <code>KingNuoNuo/dnet</code> 的 GitHub Releases 下载并校验 SHA-256；配置文件缺失也会自动创建。</div>
+  </div>
+  <div class="warn"><b>注意：</b>取消勾选后必须点「保存并应用」才会真正停止服务并关闭开机启动，只刷新页面不会保存改动。改路径也一样——配置和密钥文件（<code>master.key</code>、GeoIP 库、<code>waf_state.json</code>）都在配置文件同级目录，迁移时要整个目录一起搬。</div>
+  <div class="tip"><b>空间不足：</b>D-NET 二进制约 19 MB。路由 overlay 小的话，把程序和配置都放到外置存储（如 <code>/mnt/sda1/dnet/</code>），并用稳定挂载点，别依赖 <code>/mnt/sda1</code> 重启后还在。</div>
+</section>
+
+<section id="luci">
+  <h2><span class="num">03</span>LuCI 插件界面详解</h2>
+  <figure>
+    <img src="images/doc_luci_settings.png" alt="LuCI 基本设置">
+    <figcaption>图 1 · LuCI 插件「基本设置」Tab：服务与路径、配置加密、程序与更新</figcaption>
+  </figure>
+  <p>页面顶部三个 Tab：<b>基本设置 / 仪表板 / 日志</b>。</p>
+
+  <h3>3.1 基本设置</h3>
+  <table>
+    <tr><th>区块</th><th>项目</th><th>说明</th></tr>
+    <tr><td rowspan="3">服务与路径</td><td>服务开关</td><td>勾选「启用 D-NET 服务」后保存并应用；右侧标签显示「运行中 / 已启用未运行 / 已关闭」</td></tr>
+    <tr><td>应用程序路径</td><td>程序文件路径，或放程序的目录</td></tr>
+    <tr><td>配置文件路径</td><td>YAML 配置文件路径，或放配置的目录</td></tr>
+    <tr><td rowspan="2">配置加密</td><td>加密状态</td><td>显示「已加密 / 明文 / 已生成主密钥但配置仍明文 / 缺少主密钥」等；加密云厂商密钥、ACME 账号密钥、证书私钥、Webhook 地址</td></tr>
+    <tr><td>操作按钮</td><td>生成主密钥、一键加密、解密为明文、刷新状态。主密钥只显示一次，务必离线备份</td></tr>
+    <tr><td>程序与更新</td><td>检查更新 / 立即升级</td><td>只在你点按钮时才联网检查；升级通过 LuCI 下载校验，版本为 DEV/日期版也能升。发布页链接直达 GitHub</td></tr>
+  </table>
+  <div class="warn">配置加密只防「配置文件被看到」，防不住拿到 root 或拆走闪存的人。配置已有密文时，页面不会让你「生成主密钥」，避免把旧数据变成不可读。</div>
+
+  <h3>3.2 仪表板</h3>
+  <figure>
+    <img src="images/doc_luci_dashboard.png" alt="LuCI 仪表板内嵌 D-NET">
+    <figcaption>图 2 · 「仪表板」Tab：D-NET 管理界面直接内嵌在路由器页面里，未登录时在框内登录即可</figcaption>
+  </figure>
+  <p>这里把 D-NET 的 9877 页面用 iframe 内嵌进来，<b>不用跳端口、不用开新页</b>。首次使用在框内输入 D-NET 账号密码登录；需要大屏操作可点「在新窗口打开」。切到这个 Tab 才加载 iframe，不影响其它 Tab 速度。</p>
+
+  <h3>3.3 日志</h3>
+  <figure>
+    <img src="images/doc_luci_logs.png" alt="LuCI 日志 Tab">
+    <figcaption>图 3 · 「日志」Tab：直读系统日志里的 D-NET 记录，无需登录 9877</figcaption>
+  </figure>
+  <p>顶栏有「自动刷新」「立即刷新」「清空」和条数统计。日志直接读 <code>logread</code> 里的 D-NET 记录，默认自动刷新。「清空」只标记当前位置作为新起点，不动系统里其它服务的日志，之后的新日志继续显示。</p>
+</section>
+
+<section id="login">
+  <h2><span class="num">04</span>登录 D-NET Web</h2>
+  <p>直接访问 <code>http://路由器IP:9877</code>，或在 LuCI 仪表板里登录。首次会要求设置管理员账号密码（在 D-NET Web 的「设置」页修改）。</p>
+  <div class="note">如果在 LuCI 仪表板里已经登录过 D-NET，新窗口打开通常也是同一会话；账号密码以你在「设置」页配置的为准。</div>
+</section>
+
+<section id="overview">
+  <h2><span class="num">05</span>总览页</h2>
+  <figure>
+    <img src="images/doc_overview.png" alt="D-NET 总览页">
+    <figcaption>图 4 · 总览页：各模块运行状态卡片 + 系统日志</figcaption>
+  </figure>
+  <p>顶部卡片展示 DCDN、DDNS、端口转发、Web 服务、证书的数量与运行状态，点「进入 →」直达对应配置页。下方是系统日志，支持自动刷新、刷新、清空，按级别（FATAL/ERROR/WARN/INFO/DEBUG）着色。</p>
+</section>
+
+<section id="dcdn">
+  <h2><span class="num">06</span>动态 CDN（DCDN）</h2>
+  <figure>
+    <img src="images/doc_dcdn.png" alt="DCDN 配置页">
+    <figcaption>图 5 · 动态 CDN：域名配置 + 每域名的源站列表，支持动态 IPv6 源站</figcaption>
+  </figure>
+  <h3>配置步骤</h3>
+  <div class="steps">
+    <div class="step"><b>顶部「是否开启」</b>勾上，这是 DCDN 总开关，保存后生效。</div>
+    <div class="step"><b>添加域名</b>：填域名、选 CDN 服务商（阿里云 / 腾讯云 / 又拍云等）、类型（DCDN / CDN）。</div>
+    <div class="step"><b>源站</b>：每个域名可加多条源站。类型选「动态 IPv6 / 网卡获取」时，值选网卡，配合「IPv6 正则」从多地址里挑；「主站 / 备站」决定优先级。</div>
+    <div class="step"><b>CNAME</b>：页面给出该域名的 CNAME，复制到 DNS 解析即可；凭据按服务商要求填（AccessKey 等）。</div>
+  </div>
+  <div class="tip">顶部统计条显示「运行指标 / 域名数 / 源站数 / 动态源站 / 服务商」。源站的协议、HTTP/HTTPS 端口、权重等按你的 CDN 服务商要求填。</div>
+</section>
+
+<section id="ddns">
+  <h2><span class="num">07</span>动态 DNS（DDNS）</h2>
+  <figure>
+    <img src="images/doc_ddns.png" alt="DDNS 配置页">
+    <figcaption>图 6 · 动态 DNS：域名记录 + 动态取值规则</figcaption>
+  </figure>
+  <p>每个域名一行，配置服务商、域名、记录类型（A / AAAA 等）、取值方式（网卡 IPv4/IPv6、接口地址、正则匹配等）。页面会显示当前解析状态与记录值，支持探测核对。</p>
+  <div class="note">动态取值和「IPv6 正则」配合，可以从网卡的多个 IPv6 地址里选出你想要的那个再更新解析记录。</div>
+</section>
+
+<section id="forward">
+  <h2><span class="num">08</span>端口转发（DPF）</h2>
+  <figure>
+    <img src="images/doc_forward.png" alt="端口转发配置页">
+    <figcaption>图 7 · 端口转发：规则列表 + 展开后的高级选项</figcaption>
+  </figure>
+  <h3>主行字段</h3>
+  <table>
+    <tr><th>字段</th><th>说明</th></tr>
+    <tr><td>监听协议 / 类型</td><td>TCP / UDP 等，决定转发协议</td></tr>
+    <tr><td>监听 IP / 端口</td><td>对外监听地址与端口；IPv6 环境注意选对地址族</td></tr>
+    <tr><td>目标协议 / 地址</td><td>转发到内网的协议与地址</td></tr>
+    <tr><td>访问域名</td><td>按域名匹配入口流量</td></tr>
+    <tr><td>WAF 策略</td><td>给这条转发启用哪套 WAF 策略，留空不启用</td></tr>
+  </table>
+  <h3>展开高级选项</h3>
+  <p>点行尾展开箭头可看到：监听 IP、空闲超时（秒）、来源白名单、拨号超时（秒）、最大连接数、HTTPS 证书、强制 HTTPS、跳过证书校验、连通性探测等。底部的「测试目标」和「转为 Web 服务」两个按钮可直接验证目标或把这条规则转成 Web 服务规则。</p>
+  <div class="tip">「转为 Web 服务」适合把纯转发升级成带 HTTP/HTTPS 反向代理、认证和 WAF 的完整服务，省得重新填一遍。</div>
+</section>
+
+<section id="webservice">
+  <h2><span class="num">09</span>Web 服务（DWS）</h2>
+  <figure>
+    <img src="images/doc_webservice.png" alt="Web 服务配置页">
+    <figcaption>图 8 · Web 服务：反向代理规则，一个访问域名一行</figcaption>
+  </figure>
+  <h3>主行字段</h3>
+  <table>
+    <tr><th>字段</th><th>说明</th></tr>
+    <tr><td>监听协议 / IP</td><td>HTTP / HTTPS，监听地址</td></tr>
+    <tr><td>访问域名</td><td>外部访问用的域名，一行一个</td></tr>
+    <tr><td>目标地址</td><td>反向代理到内网的服务地址</td></tr>
+    <tr><td>WAF 策略</td><td>本行用哪套 WAF 策略，不启用则原样转发</td></tr>
+    <tr><td>启用 HTTPS / 证书</td><td>开启后选证书，可强制 HTTPS 并设重定向状态码</td></tr>
+    <tr><td>认证</td><td>启用后填访问账号 / 访问密码</td></tr>
+  </table>
+  <h3>展开高级选项</h3>
+  <p>监听 IP、国家/地区限制、保留 Host、跳过上游证书校验、响应头超时（秒）、强制 HTTPS、HTTPS 证书、访问认证等。其中「国家/地区限制」可覆盖 WAF 策略里的「仅允许中国大陆」开关，内网来源始终放行。</p>
+  <div class="note">Coraza WAF 检查请求行、请求头与请求体（上限 13 MiB，超出部分继续转发），命中返回 403 并写入 DWS 日志。规则组与自定义规则在 <b>/waf</b> 页维护，这里只选策略。</div>
+</section>
+
+<section id="waf">
+  <h2><span class="num">10</span>Coraza WAF 配置与例外</h2>
+  <p>入口：D-NET Web 顶部导航的「WAF」页（<code>/waf</code>）。内置 OWASP 核心规则集（CRS），按「策略」管理，Web 服务按行引用策略，不同站点可用不同策略。</p>
+
+  <h3>10.1 策略结构</h3>
+  <table>
+    <tr><th>项目</th><th>说明</th></tr>
+    <tr><td>内置规则组</td><td>勾选用哪些 CRS 规则组。901/949 等框架组始终启用；默认只放行 GET/HEAD/POST/OPTIONS（911 组），WebDAV 场景要取消勾选 911</td></tr>
+    <tr><td>PL 偏执等级</td><td>1–4，越高越严格，默认 1</td></tr>
+    <tr><td>异常分阈值</td><td>默认 5，达到即拦截；调高可降误报</td></tr>
+    <tr><td>例外规则 ID</td><td>按规则 ID 关闭单条检测，逗号分隔，如 <code>942100,941110</code>。比整组关闭更精细</td></tr>
+    <tr><td>地区限制</td><td>只放行中国大陆来源，需先把 GeoIP 库放到配置目录；可在 Web 服务行用 <code>allow:CN,HK</code> 覆盖</td></tr>
+    <tr><td>自定义规则 SecLang</td><td>追加在内置 CRS 之后，可写任意 Coraza 指令</td></tr>
+  </table>
+  <div class="warn"><b>别关框架组：</b>949110 是「异常分超限」的最终评估规则，真正 deny 靠它执行。把它加进例外等于关掉整站拦截——单条检测规则误报时，要放的是那条检测规则（如 930120），不是 949110。</div>
+
+  <h3>10.2 实战：给下载接口加例外</h3>
+  <p>场景：<code>POST /api/v1/download/</code> 的 body 带本地路径，被 <code>930120 OS File Access Attempt</code> 命中，日志显示「规则 949110，动作 deny，命中 930120」。</p>
+  <p><b>做法 A · 全局（影响该策略下所有站点）</b>：在「例外规则 ID」里填 <code>930120</code>，保存。</p>
+  <p><b>做法 B · 精细（推荐，只放这个接口）</b>：在「自定义规则 SecLang」里加一行：</p>
+  <pre><code>SecRule REQUEST_URI "@beginsWith /api/v1/download/" \
+  "id:1999120,phase:1,pass,nolog,ctl:ruleRemoveById=930120"</code></pre>
+  <p>这样只对下载路径关掉 930120，其它请求和其它服务照常检测。如果误报来自某个参数而不是 URL，把匹配条件换成 <code>ARGS:参数名</code> 或 <code>REQUEST_BODY</code> 配合 <code>@rx</code>。</p>
+  <div class="note"><b>生效方式：</b>在 WAF 页保存会立即重建引擎并应用，不用重启。但如果你直接改了 YAML 配置文件（如 <code>/etc/dnet/.dnet_config.yaml</code>），dnet 没有 SIGHUP 热重载，必须 <code>/etc/init.d/dnet restart</code>。改前记得备份配置。</div>
+
+  <h3>10.3 自动封禁与限速</h3>
+  <p>页面下方还有防护开关：封禁阈值、统计窗口（分钟）、封禁时长（分钟）、限速（请求/秒）、突发值、IP 白名单。命中规则的来源 IP 会被临时封禁并记账，白名单里的 IP 不受封禁和限速影响。</p>
+</section>
+
+<section id="cert">
+  <h2><span class="num">11</span>证书管理</h2>
+  <figure>
+    <img src="images/doc_certificates.png" alt="证书管理页">
+    <figcaption>图 9 · 证书管理：ACME 申请 / 手动上传，查看到期时间</figcaption>
+  </figure>
+  <p>支持两种方式：ACME 自动申请（填域名、邮箱、CA、DNS 挑战凭据）和手动上传（证书文件 / 私钥文件，或直接贴 PEM 内容）。列表显示名称/来源、引用模块、状态/到期时间。</p>
+  <div class="note">DNS-01 挑战支持多家服务商（Cloudflare、DNSPod、Porkbun、NameSilo 等），按所选服务商填对应 API 凭据。申请的证书可被 Web 服务和端口转发的 HTTPS 选项引用。</div>
+</section>
+
+<section id="other">
+  <h2><span class="num">12</span>设置 / Webhook / 日志</h2>
+  <div class="grid2">
+    <div>
+      <h3>12.1 系统设置</h3>
+      <figure><img src="images/doc_settings.png" alt="系统设置"><figcaption>图 10 · 系统设置</figcaption></figure>
+      <p>管理员用户名/密码（密码留空表示不改）、同步间隔（10–86400 秒）、DCDN/DDNS 强制同步次数（1–1000）、「禁止公网访问」开关。改密码后保存会自动清空输入框。</p>
+    </div>
+    <div>
+      <h3>12.2 Webhook</h3>
+      <figure><img src="images/doc_webhook.png" alt="Webhook"><figcaption>图 11 · Webhook 通知</figcaption></figure>
+      <p>启用后填 URL、请求头、请求体模板，支持用变量占位符（如 <code>{{message}}</code>）插入事件内容。用于推送 DCDN/DDNS 变更、证书到期等通知。</p>
+    </div>
+  </div>
+  <h3>12.3 日志页</h3>
+  <figure><img src="images/doc_logs.png" alt="D-NET 日志页"><figcaption>图 12 · D-NET Web 日志页：按时间/级别/类型/消息查看</figcaption></figure>
+  <p>按时间、级别、类型、消息列出运行日志，支持筛选与清空。总览页和 LuCI 插件里也能看日志，三处数据源一致。</p>
+</section>
+
+<section id="faq">
+  <h2><span class="num">13</span>常见问题</h2>
+  <h4>Q1：LuCI 里服务关了，勾还是打开着？</h4>
+  <p>取消勾选后必须点「保存并应用」。页面每次提交后都会回读实际配置，正常保存后勾选状态会跟服务实际状态一致。</p>
+
+  <h4>Q2：仪表板内嵌显示登录页 / 被顶到最外层？</h4>
+  <p>这是老版本 D-NET 登录页的 frame-bust 脚本导致。v0.4.5 的 <code>login.html</code> 已放行 LuCI 父窗口（同 hostname、非 9877 端口），D-NET 自己的 iframe 和其它站点仍会跳顶层。确认服务是 v0.4.5 及以上。</p>
+
+  <h4>Q3：WAF 误报，怎么加例外不影响其它站点？</h4>
+  <p>别关整组、别加 949110。用「例外规则 ID」关单条检测规则，或用「自定义 SecLang」按路径/参数精细放行，见第 10.2 节。改 YAML 配置要重启服务，在 WAF 页保存则即时生效。</p>
+
+  <h4>Q4：GeoIP 地区限制开关不起作用？</h4>
+  <p>要先把 <code>GeoLite2-Country.mmdb</code> 或 <code>dbip-country-lite.mmdb</code> 放到配置文件同级目录（如 <code>/etc/dnet/</code>），页面有下载/更新按钮。没库时开关不拦任何请求。内网/环回/CGNAT 始终放行。</p>
+
+  <h4>Q5：升级后配置丢了 / 程序找不到？</h4>
+  <p>配置的 master.key、GeoIP 库、waf_state.json 都在配置文件同级目录，升级插件不会动 <code>/etc/config/dnet</code>（它是 conffile）。程序路径填外置存储时，确保挂载点稳定。程序被删后，在 LuCI 勾选启用会自动重新下载。</p>
+
+  <h4>Q6：改了 Web 页面的下拉框/样式，怎么生效？</h4>
+  <p>页面是 <code>embed.FS</code> 打进二进制的，改 CSS/HTML 后必须重新编译 dnet 并替换程序；只改配置文件里的字段则即时生效（或在对应页面保存）。</p>
+</section>
+
+<div class="footer">
+  D-NET + LuCI 配置教程 · 基于 v0.4.5 与 luci-app-dnet build-11 真实界面编写<br>
+  项目地址：<a href="https://github.com/KingNuoNuo/dnet" target="_blank">KingNuoNuo/dnet</a> ·
+  <a href="https://github.com/KingNuoNuo/luci-app-dnet" target="_blank">KingNuoNuo/luci-app-dnet</a>
+</div>
+
+</div>
+</body>
+</html>
